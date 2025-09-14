@@ -1,41 +1,45 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Modal,
-  TextInput,
-  Alert,
-  Platform,
-  ActivityIndicator,
-  Dimensions,
-  FlatList,
-  ScrollView,
-  RefreshControl,
-} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useColorScheme } from 'react-native';
-import Colors from '../../constants/Colors';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
-import { format, subDays, subMonths, subYears, addDays } from 'date-fns';
-import { tr } from 'date-fns/locale';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { addDays, endOfMonth, endOfWeek, endOfYear, format, startOfMonth, startOfWeek, startOfYear, subDays, subMonths, subYears } from 'date-fns';
+import { tr } from 'date-fns/locale';
+import { BlurView } from 'expo-blur';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Transaction,
-  TransactionType,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useColorScheme,
+  View
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AddTransactionModal from '../../components/budget/AddTransactionModal';
+import FilterModal from '../../components/budget/FilterModal';
+import PeriodSelector from '../../components/budget/PeriodSelector';
+import SummaryCards from '../../components/budget/SummaryCards';
+import TransactionList from '../../components/budget/TransactionList';
+import Colors from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
+import {
+  addTransaction as addBudgetTransaction,
   Category,
   defaultCategories,
-  addTransaction as addBudgetTransaction,
   deleteTransaction as deleteBudgetTransaction,
-  getTransactions as getBudgetTransactions,
   getUserCategories as getBudgetUserCategories,
-  getTransactionsAdminAware,
-  getTransactionsByRangePaged,
   getTopSpendersByRange,
+  getTransactionsByDateRange,
+  getTransactionsByDateRangeAllUsers,
+  getTransactionsByRangePaged,
+  Transaction,
+  TransactionType
 } from '../../services/BudgetService';
-import { useAuth } from '../../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 
@@ -193,6 +197,32 @@ export default function BudgetScreen() {
   const [spenderMonth, setSpenderMonth] = useState<Date>(new Date());
   const [globalTopSpenders, setGlobalTopSpenders] = useState<Array<{ userId: string; userName: string; amount: number }>>([]);
   const [globalTopSpendersTotal, setGlobalTopSpendersTotal] = useState<number>(0);
+  const [showTypeSheet, setShowTypeSheet] = useState(false);
+  const [analysisPeriodStats, setAnalysisPeriodStats] = useState({
+    weekly: { income: 0, expense: 0 },
+    monthly: { income: 0, expense: 0 },
+    yearly: { income: 0, expense: 0 },
+  });
+  const [analysisCounts, setAnalysisCounts] = useState({ weekly: 0, monthly: 0, yearly: 0 });
+  const ANALYSIS_DEBUG = true;
+  const [analysisCollapsed, setAnalysisCollapsed] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem('budget_analysis_collapsed');
+        if (saved !== null) setAnalysisCollapsed(saved === 'true');
+      } catch {}
+    })();
+  }, []);
+
+  const toggleAnalysisCollapsed = async () => {
+    try {
+      const next = !analysisCollapsed;
+      setAnalysisCollapsed(next);
+      await AsyncStorage.setItem('budget_analysis_collapsed', next ? 'true' : 'false');
+    } catch {}
+  };
 
   // Global top spenders, everyone can view; only admins see filters
   const fetchTopSpenders = useCallback(async () => {
@@ -220,6 +250,49 @@ export default function BudgetScreen() {
   useEffect(() => {
     fetchTopSpenders();
   }, [fetchTopSpenders, refreshing]);
+
+  // Compute analysis cards by fetching exact range from Firestore (admin-aware)
+  useEffect(() => {
+    const loadRemote = async () => {
+      if (!user) return;
+      const now = new Date();
+      const sWeek = startOfWeek(now, { weekStartsOn: 1 }); sWeek.setHours(0,0,0,0);
+      const eWeek = endOfWeek(now, { weekStartsOn: 1 }); eWeek.setHours(23,59,59,999);
+      const sMonth = startOfMonth(now); sMonth.setHours(0,0,0,0);
+      const eMonth = endOfMonth(now); eMonth.setHours(23,59,59,999);
+      const sYear = startOfYear(now); sYear.setHours(0,0,0,0);
+      const eYear = endOfYear(now); eYear.setHours(23,59,59,999);
+
+      const fetchRange = async (start: Date, end: Date) => {
+        const list = isAdmin
+          ? await getTransactionsByDateRangeAllUsers(start, end)
+          : await getTransactionsByDateRange(start, end, user);
+        const income = list.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+        const expense = list.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+        return { income, expense, count: list.length, list };
+      };
+
+      const [wk, mo, yr] = await Promise.all([
+        fetchRange(sWeek, eWeek),
+        fetchRange(sMonth, eMonth),
+        fetchRange(sYear, eYear),
+      ]);
+
+      setAnalysisPeriodStats({
+        weekly: { income: wk.income, expense: wk.expense },
+        monthly: { income: mo.income, expense: mo.expense },
+        yearly: { income: yr.income, expense: yr.expense },
+      });
+      setAnalysisCounts({ weekly: wk.count, monthly: mo.count, yearly: yr.count });
+
+      if (ANALYSIS_DEBUG) {
+        console.log('[Analysis REMOTE] WEEK', sWeek.toISOString(), '→', eWeek.toISOString(), { count: wk.count, income: wk.income, expense: wk.expense });
+        console.log('[Analysis REMOTE] MONTH', sMonth.toISOString(), '→', eMonth.toISOString(), { count: mo.count, income: mo.income, expense: mo.expense });
+        console.log('[Analysis REMOTE] YEAR', sYear.toISOString(), '→', eYear.toISOString(), { count: yr.count, income: yr.income, expense: yr.expense });
+      }
+    };
+    loadRemote();
+  }, [user, isAdmin, refreshing]);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -255,6 +328,15 @@ export default function BudgetScreen() {
         }),
         getBudgetUserCategories(user).catch(() => defaultCategories),
       ]);
+
+      // Debug: userName presence for expense transactions
+      try {
+        const missingUserName = (firstPage.items || []).filter(t => t.type === 'expense' && (!t.userName || String(t.userName).trim() === ''));
+        const presentUserName = (firstPage.items || []).filter(t => t.type === 'expense' && t.userName && String(t.userName).trim() !== '');
+        console.log('[Tx Debug] First page expense without userName =', missingUserName.length,
+          missingUserName.slice(0, 5).map(t => ({ id: t.id, amount: t.amount, date: t.date.toISOString(), category: t.category })));
+        console.log('[Tx Debug] First page expense with userName sample =', presentUserName.slice(0, 3).map(t => ({ id: t.id, userName: t.userName, amount: t.amount })));
+      } catch {}
 
       setTransactions(firstPage.items);
       setLastCursor(firstPage.lastDoc || null);
@@ -435,53 +517,17 @@ export default function BudgetScreen() {
   }, [theme, categories, handleDeleteTransaction]);
 
   const renderTransactionList = () => {
-    // Use the already filtered and memoized paginatedTransactions
-    if (paginatedTransactions.length === 0) {
       return (
-        <View style={[styles.emptyStateContainer, { backgroundColor: theme.surface }]}> 
-          <MaterialCommunityIcons
-            name="cash-remove"
-            size={48}
-            color={theme.textDim}
-            style={styles.emptyStateIcon}
-          />
-          <Text style={[styles.emptyStateText, { color: theme.textDim }]}> 
-            {activeTab === 'overview' ? 'Son 14 günde işlem bulunmuyor' : 
-             selectedDate ? `${format(selectedDate, 'd MMMM yyyy', { locale: tr })} tarihinde işlem bulunmuyor` : 
-             'Bu dönemde işlem bulunmuyor'}
-          </Text>
-        </View>
-      );
-    }
-
-    return (
-      <FlatList
+      <TransactionList
         data={groupedTransactions}
-        renderItem={renderTransactionItem}
-        keyExtractor={([dateKey], index) => `${dateKey}-${index}`}
-        onEndReached={loadMoreTransactions}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={
-          hasMore && !isLoadingMore ? (
-            <TouchableOpacity
-              style={[styles.loadMoreButton, { backgroundColor: theme.surface }]}
-              onPress={loadMoreTransactions}
-            >
-              <MaterialCommunityIcons
-                name="chevron-down"
-                size={20}
-                color={theme.primary}
-              />
-              <Text style={[styles.loadMoreText, { color: theme.primary }]}> 
-                Daha Fazla Göster
-              </Text>
-            </TouchableOpacity>
-          ) : isLoadingMore ? (
-            <View style={styles.loadingMoreContainer}>
-              <ActivityIndicator size="small" color={theme.primary} />
-            </View>
-          ) : null
-        }
+        theme={theme}
+        categories={categories}
+        onDelete={handleDeleteTransaction}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={loadMoreTransactions}
+        showEmpty={paginatedTransactions.length === 0}
+        emptyContext={{ activeTab, selectedDate }}
       />
     );
   };
@@ -516,6 +562,13 @@ export default function BudgetScreen() {
         pageSize: ITEMS_PER_PAGE,
         lastDoc: lastCursor,
       });
+      try {
+        const missingUserName = (nextPage.items || []).filter(t => t.type === 'expense' && (!t.userName || String(t.userName).trim() === ''));
+        const presentUserName = (nextPage.items || []).filter(t => t.type === 'expense' && t.userName && String(t.userName).trim() !== '');
+        console.log('[Tx Debug] Next page expense without userName =', missingUserName.length,
+          missingUserName.slice(0, 5).map(t => ({ id: t.id, amount: t.amount, date: t.date.toISOString(), category: t.category })));
+        console.log('[Tx Debug] Next page expense with userName sample =', presentUserName.slice(0, 3).map(t => ({ id: t.id, userName: t.userName, amount: t.amount })));
+      } catch {}
       setTransactions(prev => [...prev, ...nextPage.items]);
       setLastCursor(nextPage.lastDoc || null);
       setHasMore((nextPage.items?.length || 0) === ITEMS_PER_PAGE);
@@ -622,109 +675,56 @@ export default function BudgetScreen() {
 
   const renderSummaryCards = () => {
     return (
-      <View style={styles.summaryContainer}>
-        <View style={[styles.summaryCard, { backgroundColor: theme.surface }]}> 
-          <View style={styles.summaryHeader}>
-            <Text style={[styles.summaryTitle, { color: theme.text }]}> 
-              {selectedPeriod === 'week' ? 'Bu Hafta' : 
-               selectedPeriod === 'month' ? 'Bu Ay' : 'Bu Yıl'}
-            </Text>
-            <TouchableOpacity onPress={() => {/* TODO: Detaylı görünüm */}}>
-              <MaterialCommunityIcons name="chevron-right" size={24} color={theme.textDim} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <View style={styles.summaryItemHeader}>
-                <MaterialCommunityIcons name="cash-plus" size={16} color="#4CAF50" />
-                <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gelir</Text>
-              </View>
-              <Text style={[styles.summaryItemAmount, { color: '#4CAF50' }]}> 
-                ₺{stats.totalIncome.toFixed(0)}
-              </Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <View style={styles.summaryItemHeader}>
-                <MaterialCommunityIcons name="cash-minus" size={16} color="#FF6B6B" />
-                <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gider</Text>
-              </View>
-              <Text style={[styles.summaryItemAmount, { color: '#FF6B6B' }]}> 
-                ₺{stats.totalExpense.toFixed(0)}
-              </Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <View style={styles.summaryItemHeader}>
-                <MaterialCommunityIcons 
-                  name={stats.balance >= 0 ? "wallet" : "alert-circle"} 
-                  size={16} 
-                  color={stats.balance >= 0 ? '#2196F3' : '#FF6B6B'} 
-                />
-                <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Bakiye</Text>
-              </View>
-              <Text style={[
-                styles.summaryItemAmount,
-                { color: stats.balance >= 0 ? '#2196F3' : '#FF6B6B' }
-              ]}>
-                ₺{stats.balance.toFixed(0)}
-              </Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <View style={styles.summaryItemHeader}>
-                <MaterialCommunityIcons name="swap-horizontal" size={16} color="#9C27B0" />
-                <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>İşlem</Text>
-              </View>
-              <Text style={[styles.summaryItemAmount, { color: '#9C27B0' }]}> 
-                {transactions.filter(t => {
-                  const today = new Date();
-                  let startDate: Date;
-                  switch (selectedPeriod) {
-                    case 'week':
-                      startDate = subDays(today, 7);
-                      break;
-                    case 'month':
-                      startDate = subMonths(today, 1);
-                      break;
-                    case 'year':
-                      startDate = subYears(today, 1);
-                      break;
-                    default:
-                      startDate = subMonths(today, 1);
-                  }
-                  return t.date >= startDate && t.date <= today;
-                }).length}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </View>
+      <SummaryCards
+        stats={stats}
+        transactions={transactions}
+        selectedPeriod={selectedPeriod}
+        theme={theme}
+      />
     );
   };
 
   const renderPeriodSelector = () => (
-    <View style={styles.periodSelector}>
-      {['week', 'month', 'year'].map((period) => (
+    <PeriodSelector
+      selectedPeriod={selectedPeriod}
+      onChange={(p) => setSelectedPeriod(p)}
+      theme={theme}
+      style={styles.periodSelector}
+    />
+  );
+
+  const renderTypeQuickFilter = () => (
+    <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+      <View style={styles.filterTypeButtons}>
+        {[
+          { id: 'all', label: 'Tümü', icon: 'swap-horizontal' },
+          { id: 'income', label: 'Gelir', icon: 'cash-plus' },
+          { id: 'expense', label: 'Gider', icon: 'cash-minus' },
+        ].map((opt) => (
         <TouchableOpacity
-          key={period}
+            key={opt.id}
           style={[
-            styles.periodButton,
-            selectedPeriod === period && { backgroundColor: theme.primary },
+              styles.filterTypeButton,
+              filterType === (opt.id as any) && { backgroundColor: theme.primary + '20' },
           ]}
-          onPress={() => setSelectedPeriod(period as any)}
+            onPress={() => setFilterType(opt.id as any)}
         >
+            <MaterialCommunityIcons
+              name={opt.icon as any}
+              size={20}
+              color={filterType === (opt.id as any) ? theme.primary : theme.textDim}
+            />
           <Text
             style={[
-              styles.periodButtonText,
-              { color: selectedPeriod === period ? '#FFF' : theme.text },
+                styles.filterTypeButtonText,
+                { color: filterType === (opt.id as any) ? theme.primary : theme.textDim },
             ]}
           >
-            {period === 'week' ? 'Hafta' : period === 'month' ? 'Ay' : 'Yıl'}
+              {opt.label}
           </Text>
         </TouchableOpacity>
       ))}
+      </View>
     </View>
   );
 
@@ -802,8 +802,13 @@ export default function BudgetScreen() {
                   {getWeekLabel()}
                 </Text>
               </View>
-              <View style={[styles.periodBadge, { backgroundColor: theme.primary + '15' }]}> 
-                <MaterialCommunityIcons name="calendar-week" size={16} color={theme.primary} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity onPress={toggleAnalysisCollapsed}>
+                  <MaterialCommunityIcons name={analysisCollapsed ? 'eye-off' : 'eye'} size={18} color={theme.textDim} />
+                </TouchableOpacity>
+                <View style={[styles.periodBadge, { backgroundColor: theme.primary + '15' }]}> 
+                  <MaterialCommunityIcons name="calendar-week" size={16} color={theme.primary} />
+                </View>
               </View>
             </View>
             <View style={styles.summaryGrid}>
@@ -813,7 +818,7 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gelir</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: '#4CAF50' }]}> 
-                  ₺{stats.periodStats.weekly.income.toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(analysisPeriodStats.weekly.income)).length)))}` : `₺${analysisPeriodStats.weekly.income.toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
@@ -822,24 +827,24 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gider</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: '#FF6B6B' }]}> 
-                  ₺{stats.periodStats.weekly.expense.toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(analysisPeriodStats.weekly.expense)).length)))}` : `₺${analysisPeriodStats.weekly.expense.toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
                 <View style={styles.summaryItemHeader}>
                   <MaterialCommunityIcons 
-                    name={stats.periodStats.weekly.income - stats.periodStats.weekly.expense >= 0 ? "wallet" : "alert-circle"} 
+                    name={analysisPeriodStats.weekly.income - analysisPeriodStats.weekly.expense >= 0 ? "wallet" : "alert-circle"} 
                     size={16} 
-                    color={stats.periodStats.weekly.income - stats.periodStats.weekly.expense >= 0 ? '#4CAF50' : '#FF6B6B'} 
+                    color={analysisPeriodStats.weekly.income - analysisPeriodStats.weekly.expense >= 0 ? '#4CAF50' : '#FF6B6B'} 
                   />
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Bakiye</Text>
                 </View>
                 <Text style={[styles.summaryValue, { 
-                  color: stats.periodStats.weekly.income - stats.periodStats.weekly.expense >= 0 
+                  color: analysisPeriodStats.weekly.income - analysisPeriodStats.weekly.expense >= 0 
                     ? '#4CAF50' 
                     : '#FF6B6B' 
                 }]}> 
-                  ₺{(stats.periodStats.weekly.income - stats.periodStats.weekly.expense).toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(Math.abs(analysisPeriodStats.weekly.income - analysisPeriodStats.weekly.expense))).length)))}` : `₺${(analysisPeriodStats.weekly.income - analysisPeriodStats.weekly.expense).toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
@@ -848,10 +853,7 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>İşlem</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: theme.text }]}> 
-                  {transactions.filter(t => 
-                    t.date >= subDays(new Date(), 7) && 
-                    t.date <= new Date()
-                  ).length}
+                  {analysisCollapsed ? '•'.repeat(Math.max(3, Math.min(8, String(analysisCounts.weekly).length))) : `${analysisCounts.weekly}`}
                 </Text>
               </View>
             </View>
@@ -868,8 +870,13 @@ export default function BudgetScreen() {
                   {getMonthLabel()}
                 </Text>
               </View>
-              <View style={[styles.periodBadge, { backgroundColor: theme.primary + '15' }]}> 
-                <MaterialCommunityIcons name="calendar-month" size={16} color={theme.primary} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity onPress={toggleAnalysisCollapsed}>
+                  <MaterialCommunityIcons name={analysisCollapsed ? 'eye-off' : 'eye'} size={18} color={theme.textDim} />
+                </TouchableOpacity>
+                <View style={[styles.periodBadge, { backgroundColor: theme.primary + '15' }]}> 
+                  <MaterialCommunityIcons name="calendar-month" size={16} color={theme.primary} />
+                </View>
               </View>
             </View>
             <View style={styles.summaryGrid}>
@@ -879,7 +886,7 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gelir</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: '#4CAF50' }]}> 
-                  ₺{stats.periodStats.monthly.income.toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(analysisPeriodStats.monthly.income)).length)))}` : `₺${analysisPeriodStats.monthly.income.toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
@@ -888,24 +895,24 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gider</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: '#FF6B6B' }]}> 
-                  ₺{stats.periodStats.monthly.expense.toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(analysisPeriodStats.monthly.expense)).length)))}` : `₺${analysisPeriodStats.monthly.expense.toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
                 <View style={styles.summaryItemHeader}>
                   <MaterialCommunityIcons 
-                    name={stats.periodStats.monthly.income - stats.periodStats.monthly.expense >= 0 ? "wallet" : "alert-circle"} 
+                    name={analysisPeriodStats.monthly.income - analysisPeriodStats.monthly.expense >= 0 ? "wallet" : "alert-circle"} 
                     size={16} 
-                    color={stats.periodStats.monthly.income - stats.periodStats.monthly.expense >= 0 ? '#4CAF50' : '#FF6B6B'} 
+                    color={analysisPeriodStats.monthly.income - analysisPeriodStats.monthly.expense >= 0 ? '#4CAF50' : '#FF6B6B'} 
                   />
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Bakiye</Text>
                 </View>
                 <Text style={[styles.summaryValue, { 
-                  color: stats.periodStats.monthly.income - stats.periodStats.monthly.expense >= 0 
+                  color: analysisPeriodStats.monthly.income - analysisPeriodStats.monthly.expense >= 0 
                     ? '#4CAF50' 
                     : '#FF6B6B' 
                 }]}> 
-                  ₺{(stats.periodStats.monthly.income - stats.periodStats.monthly.expense).toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(Math.abs(analysisPeriodStats.monthly.income - analysisPeriodStats.monthly.expense))).length)))}` : `₺${(analysisPeriodStats.monthly.income - analysisPeriodStats.monthly.expense).toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
@@ -914,10 +921,7 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>İşlem</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: theme.text }]}> 
-                  {transactions.filter(t => 
-                    t.date >= subMonths(new Date(), 1) && 
-                    t.date <= new Date()
-                  ).length}
+                  {analysisCollapsed ? '•'.repeat(Math.max(3, Math.min(8, String(analysisCounts.monthly).length))) : `${analysisCounts.monthly}`}
                 </Text>
               </View>
             </View>
@@ -934,8 +938,13 @@ export default function BudgetScreen() {
                   {getYearLabel()}
                 </Text>
         </View>
-              <View style={[styles.periodBadge, { backgroundColor: theme.primary + '15' }]}> 
-                <MaterialCommunityIcons name="calendar-star" size={16} color={theme.primary} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity onPress={toggleAnalysisCollapsed}>
+                  <MaterialCommunityIcons name={analysisCollapsed ? 'eye-off' : 'eye'} size={18} color={theme.textDim} />
+                </TouchableOpacity>
+                <View style={[styles.periodBadge, { backgroundColor: theme.primary + '15' }]}> 
+                  <MaterialCommunityIcons name="calendar-star" size={16} color={theme.primary} />
+                </View>
       </View>
             </View>
             <View style={styles.summaryGrid}>
@@ -945,7 +954,7 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gelir</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: '#4CAF50' }]}> 
-                  ₺{stats.periodStats.yearly.income.toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(analysisPeriodStats.yearly.income)).length)))}` : `₺${analysisPeriodStats.yearly.income.toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
@@ -954,24 +963,24 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gider</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: '#FF6B6B' }]}> 
-                  ₺{stats.periodStats.yearly.expense.toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(analysisPeriodStats.yearly.expense)).length)))}` : `₺${analysisPeriodStats.yearly.expense.toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
                 <View style={styles.summaryItemHeader}>
                   <MaterialCommunityIcons 
-                    name={stats.periodStats.yearly.income - stats.periodStats.yearly.expense >= 0 ? "wallet" : "alert-circle"} 
+                    name={analysisPeriodStats.yearly.income - analysisPeriodStats.yearly.expense >= 0 ? "wallet" : "alert-circle"} 
                     size={16} 
-                    color={stats.periodStats.yearly.income - stats.periodStats.yearly.expense >= 0 ? '#4CAF50' : '#FF6B6B'} 
+                    color={analysisPeriodStats.yearly.income - analysisPeriodStats.yearly.expense >= 0 ? '#4CAF50' : '#FF6B6B'} 
                   />
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Bakiye</Text>
                 </View>
                 <Text style={[styles.summaryValue, { 
-                  color: stats.periodStats.yearly.income - stats.periodStats.yearly.expense >= 0 
+                  color: analysisPeriodStats.yearly.income - analysisPeriodStats.yearly.expense >= 0 
                     ? '#4CAF50' 
                     : '#FF6B6B' 
                 }]}> 
-                  ₺{(stats.periodStats.yearly.income - stats.periodStats.yearly.expense).toFixed(0)}
+                  {analysisCollapsed ? `₺${'•'.repeat(Math.max(3, Math.min(8, String(Math.floor(Math.abs(analysisPeriodStats.yearly.income - analysisPeriodStats.yearly.expense))).length)))}` : `₺${(analysisPeriodStats.yearly.income - analysisPeriodStats.yearly.expense).toFixed(0)}`}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
@@ -980,10 +989,7 @@ export default function BudgetScreen() {
                   <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>İşlem</Text>
                 </View>
                 <Text style={[styles.summaryValue, { color: theme.text }]}> 
-                  {transactions.filter(t => 
-                    t.date >= subYears(new Date(), 1) && 
-                    t.date <= new Date()
-                  ).length}
+                  {analysisCollapsed ? '•'.repeat(Math.max(3, Math.min(8, String(analysisCounts.yearly).length))) : `${analysisCounts.yearly}`}
                 </Text>
               </View>
             </View>
@@ -1134,330 +1140,46 @@ export default function BudgetScreen() {
   };
 
   const renderAddTransactionModal = () => (
-    <Modal
+    <AddTransactionModal
       visible={isAddModalVisible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setIsAddModalVisible(false)}
-    >
-      <BlurView style={StyleSheet.absoluteFill} intensity={Platform.OS === 'ios' ? 20 : 100} tint={colorScheme}>
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}> 
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Yeni İşlem</Text>
-              <TouchableOpacity onPress={() => setIsAddModalVisible(false)}>
-                <MaterialCommunityIcons name="close" size={24} color={theme.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.transactionTypeSelector}>
-              <TouchableOpacity
-                style={[
-                  styles.typeButton,
-                  transactionType === 'income' && { backgroundColor: '#4CAF50' },
-                ]}
-                onPress={() => {
-                  setTransactionType('income');
-                  setSelectedCategory(categories.find(c => c.type === 'income')?.id || '');
-                }}
-              >
-                <MaterialCommunityIcons
-                  name="cash-plus"
-                  size={24}
-                  color={transactionType === 'income' ? '#FFF' : theme.text}
-                />
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    { color: transactionType === 'income' ? '#FFF' : theme.text },
-                  ]}
-                >
-                  Gelir
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.typeButton,
-                  transactionType === 'expense' && { backgroundColor: '#FF6B6B' },
-                ]}
-                onPress={() => {
-                  setTransactionType('expense');
-                  setSelectedCategory(categories.find(c => c.type === 'expense')?.id || '');
-                }}
-              >
-                <MaterialCommunityIcons
-                  name="cash-minus"
-                  size={24}
-                  color={transactionType === 'expense' ? '#FFF' : theme.text}
-                />
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    { color: transactionType === 'expense' ? '#FFF' : theme.text },
-                  ]}
-                >
-                  Gider
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Kategori</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.categoryScroll}
-              >
-                {categories
-                  .filter(category => category.type === transactionType)
-                  .map(category => (
-                    <TouchableOpacity
-                      key={category.id}
-                      style={[
-                        styles.categoryButton,
-                        selectedCategory === category.id && { backgroundColor: category.color + '20' },
-                      ]}
-                      onPress={() => setSelectedCategory(category.id)}
-                    >
-                      <MaterialCommunityIcons
-                        name={category.icon as any}
-                        size={24}
-                        color={selectedCategory === category.id ? category.color : theme.textDim}
-                      />
-                      <Text
-                        style={[
-                          styles.categoryText,
-                          { color: selectedCategory === category.id ? category.color : theme.textDim },
-                        ]}
-                      >
-                        {category.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-              </ScrollView>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Tutar (₺)</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.background, color: theme.text }]}
-                value={amount}
-                onChangeText={handleAmountChange}
-                keyboardType="numeric"
-                placeholder="0.00"
-                placeholderTextColor={theme.textDim}
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Açıklama</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.background, color: theme.text }]}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="İşlem açıklaması"
-                placeholderTextColor={theme.textDim}
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Tarih</Text>
-              <TouchableOpacity
-                style={[styles.dateButton, { backgroundColor: theme.background }]}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Text style={[styles.dateButtonText, { color: theme.text }]}> 
-                  {format(date, 'd MMMM yyyy', { locale: tr })}
-                </Text>
-                <MaterialCommunityIcons name="calendar" size={24} color={theme.primary} />
-              </TouchableOpacity>
-            </View>
-
-            {showDatePicker && (
-              <DateTimePicker
-                value={date}
-                mode="date"
-                display="default"
-                onChange={(event, selectedDate) => {
-                  setShowDatePicker(false);
-                  if (selectedDate) {
-                    setDate(selectedDate);
-                  }
-                }}
-              />
-            )}
-
-            <TouchableOpacity
-              style={[
-                styles.modalButton,
-                { backgroundColor: transactionType === 'income' ? '#4CAF50' : '#FF6B6B' }
-              ]}
-              onPress={handleAddTransaction}
-            >
-              <Text style={styles.modalButtonText}>
-                {transactionType === 'income' ? 'Gelir Ekle' : 'Gider Ekle'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </BlurView>
-    </Modal>
+      onClose={() => setIsAddModalVisible(false)}
+      transactionType={transactionType}
+      setTransactionType={setTransactionType}
+      categories={categories}
+      selectedCategory={selectedCategory}
+      setSelectedCategory={setSelectedCategory}
+      amount={amount}
+      onAmountChange={handleAmountChange}
+      description={description}
+      onDescriptionChange={setDescription}
+      date={date}
+      setDate={setDate}
+      showDatePicker={showDatePicker}
+      setShowDatePicker={setShowDatePicker}
+      onSubmit={handleAddTransaction}
+      theme={theme}
+      colorScheme={colorScheme}
+    />
   );
 
   const renderFilterModal = () => (
-    <Modal
+    <FilterModal
       visible={filterModalVisible}
-      transparent
-      animationType="slide"
-      onRequestClose={() => setFilterModalVisible(false)}
-    >
-      <BlurView style={StyleSheet.absoluteFill} intensity={Platform.OS === 'ios' ? 20 : 100} tint={colorScheme}>
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Filtrele</Text>
-              <TouchableOpacity onPress={() => setFilterModalVisible(false)}>
-                <MaterialCommunityIcons name="close" size={24} color={theme.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.filterSection}>
-              <Text style={[styles.filterSectionTitle, { color: theme.text }]}>İşlem Tipi</Text>
-              <View style={styles.filterTypeButtons}>
-                {[
-                  { id: 'all', label: 'Tümü', icon: 'swap-horizontal' },
-                  { id: 'income', label: 'Gelir', icon: 'cash-plus' },
-                  { id: 'expense', label: 'Gider', icon: 'cash-minus' },
-                ].map(type => (
-                  <TouchableOpacity
-                    key={type.id}
-                    style={[
-                      styles.filterTypeButton,
-                      filterType === type.id && { backgroundColor: theme.primary + '20' },
-                    ]}
-                    onPress={() => setFilterType(type.id as any)}
-                  >
-            <MaterialCommunityIcons
-                      name={type.icon as any}
-                      size={20}
-                      color={filterType === type.id ? theme.primary : theme.textDim}
-                    />
-                    <Text
-                      style={[
-                        styles.filterTypeButtonText,
-                        { color: filterType === type.id ? theme.primary : theme.textDim },
-                      ]}
-                    >
-                      {type.label}
-            </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.filterSection}>
-              <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Kategori</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.categoryScroll}
-              >
-            <TouchableOpacity
-                  style={[
-                    styles.categoryButton,
-                    !filterCategory && { backgroundColor: theme.primary + '20' },
-                  ]}
-                  onPress={() => setFilterCategory(null)}
-                >
-                  <Text
-                    style={[
-                      styles.categoryText,
-                      { color: !filterCategory ? theme.primary : theme.textDim },
-                    ]}
-                  >
-                    Tümü
-                  </Text>
-            </TouchableOpacity>
-                {categories
-                  .filter(cat => filterType === 'all' || cat.type === filterType)
-                  .map(category => (
-                    <TouchableOpacity
-                      key={category.id}
-                      style={[
-                        styles.categoryButton,
-                        filterCategory === category.id && { backgroundColor: category.color + '20' },
-                      ]}
-                      onPress={() => setFilterCategory(category.id)}
-                    >
-                      <MaterialCommunityIcons
-                        name={category.icon as any}
-                        size={20}
-                        color={filterCategory === category.id ? category.color : theme.textDim}
-                      />
-                      <Text
-                        style={[
-                          styles.categoryText,
-                          { color: filterCategory === category.id ? category.color : theme.textDim },
-                        ]}
-                      >
-                        {category.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-              </ScrollView>
-          </View>
-
-            <View style={styles.filterSection}>
-              <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Tarih Aralığı</Text>
-              <View style={styles.dateRangeButtons}>
-                {[
-                  { label: 'Son 7 Gün', days: 7 },
-                  { label: 'Son 30 Gün', days: 30 },
-                  { label: 'Son 90 Gün', days: 90 },
-                ].map(range => (
-                  <TouchableOpacity
-                    key={range.days}
-                    style={[
-                      styles.dateRangeButton,
-                      filterDateRange.start.getTime() === subDays(new Date(), range.days).getTime() &&
-                        { backgroundColor: theme.primary + '20' },
-                    ]}
-                    onPress={() => setFilterDateRange({
-                      start: subDays(new Date(), range.days),
-                      end: new Date(),
-                    })}
-                  >
-                    <Text
-                      style={[
-                        styles.dateRangeButtonText,
-                        {
-                          color: filterDateRange.start.getTime() === subDays(new Date(), range.days).getTime()
-                            ? theme.primary
-                            : theme.textDim,
-                        },
-                      ]}
-                    >
-                      {range.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-        </View>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: theme.primary }]}
-              onPress={() => {
+      onClose={() => setFilterModalVisible(false)}
+      filterType={filterType}
+      setFilterType={setFilterType as any}
+      filterCategory={filterCategory}
+      setFilterCategory={setFilterCategory}
+      filterDateRange={filterDateRange}
+      setFilterDateRange={setFilterDateRange}
+      categories={categories}
+      theme={theme}
+      colorScheme={colorScheme}
+      onApply={() => {
                 setFilterModalVisible(false);
-                setPage(1); // Filtreleri uyguladıktan sonra sayfayı sıfırla
-              }}
-            >
-              <Text style={styles.modalButtonText}>Filtreleri Uygula</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </BlurView>
-    </Modal>
+        setPage(1);
+      }}
+    />
   );
 
   const renderTabFilters = () => (
@@ -1692,90 +1414,7 @@ export default function BudgetScreen() {
     </Modal>
   );
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'overview':
-        return (
-          <>
-            <View style={styles.pageHeader}>
-              <Text style={[styles.transactionsTitle, { color: theme.text }]}>
-                Bütçe Özeti
-                </Text>
-            </View>
-
-            {renderSummaryCards()}
-            {renderTransactionList()}
-          </>
-        );
-      case 'transactions':
-        return (
-          <>
-            <View style={styles.transactionsHeader}>
-              <View style={styles.transactionsHeaderTop}>
-                <Text style={[styles.transactionsTitle, { color: theme.text }]}>
-                  İşlemler
-                </Text>
-                <View style={styles.headerButtons}>
-                  <TouchableOpacity
-                    style={[styles.headerButton, { backgroundColor: theme.primary + '20' }]}
-                    onPress={() => setShowStats(true)}
-                  >
-                    <MaterialCommunityIcons
-                      name="chart-box"
-                      size={24}
-                      color={theme.primary}
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.headerButton, { backgroundColor: theme.primary + '20' }]}
-                    onPress={() => setShowDatePicker(true)}
-                  >
-                    <MaterialCommunityIcons
-                      name="calendar"
-                      size={24}
-                      color={theme.primary}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-              {selectedDate && (
-                <TouchableOpacity
-                  style={[styles.selectedDateContainer, { backgroundColor: theme.background }]}
-                  onPress={() => setShowDatePicker(true)}
-                >
-                  <Text style={[styles.selectedDateText, { color: theme.text }]}>
-                    {format(selectedDate, 'd MMMM yyyy', { locale: tr })}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.clearDateButton}
-                    onPress={() => setSelectedDate(null)}
-                  >
-                    <MaterialCommunityIcons name="close" size={16} color={theme.textDim} />
-                  </TouchableOpacity>
-                  </TouchableOpacity>
-                )}
-              <View style={styles.periodSelectorContainer}>
-                {renderPeriodSelector()}
-              </View>
-            </View>
-            {renderTransactionList()}
-          </>
-        );
-      case 'analysis':
-        return (
-          <>
-            <View style={styles.pageHeader}>
-              <Text style={[styles.transactionsTitle, { color: theme.text }]}>
-                Bütçe Analizi
-              </Text>
-      </View>
-            {renderAnalysisCharts()}
-          </>
-    );
-      default:
-        return null;
-    }
-  };
+ 
 
   if (isLoading) {
     return (
@@ -1853,6 +1492,16 @@ export default function BudgetScreen() {
                       color={theme.primary}
                     />
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.headerButton, { backgroundColor: theme.primary + '20' }]}
+                    onPress={() => setShowTypeSheet(true)}
+                  >
+                    <MaterialCommunityIcons
+                      name="filter-variant"
+                      size={22}
+                      color={theme.primary}
+                    />
+                  </TouchableOpacity>
                 </View>
               </View>
               
@@ -1873,27 +1522,8 @@ export default function BudgetScreen() {
                 </TouchableOpacity>
               )}
               
-              {/* Periyot Seçici */}
-              <View style={styles.periodSelector}>
-                {['week', 'month', 'year'].map((period) => (
-                  <TouchableOpacity
-                    key={period}
-                    style={[
-                      styles.periodButton,
-                      selectedPeriod === period && { backgroundColor: theme.primary },
-                    ]}
-                    onPress={() => setSelectedPeriod(period as any)}
-                  >
-                    <Text
-                      style={[
-                        styles.periodButtonText,
-                        { color: selectedPeriod === period ? '#FFF' : theme.text },
-                      ]}
-                    >
-                      {period === 'week' ? 'Hafta' : period === 'month' ? 'Ay' : 'Yıl'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.periodSelectorContainer}>
+                {renderPeriodSelector()}
               </View>
             </View>
             {renderTransactionList()}
@@ -1921,28 +1551,7 @@ export default function BudgetScreen() {
               </Text>
             </View>
             
-            {/* Periyot Seçici */}
-            <View style={styles.periodSelector}>
-              {['week', 'month', 'year'].map((period) => (
-                <TouchableOpacity
-                  key={period}
-                  style={[
-                    styles.periodButton,
-                    selectedPeriod === period && { backgroundColor: theme.primary },
-                  ]}
-                  onPress={() => setSelectedPeriod(period as any)}
-                >
-                  <Text
-                    style={[
-                      styles.periodButtonText,
-                      { color: selectedPeriod === period ? '#FFF' : theme.text },
-                    ]}
-                  >
-                    {period === 'week' ? 'Hafta' : period === 'month' ? 'Ay' : 'Yıl'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            
             
             {renderAnalysisCharts()}
           </>
@@ -1960,6 +1569,47 @@ export default function BudgetScreen() {
 
       {renderAddTransactionModal()}
       {renderFilterModal()}
+      {/* Type Quick Popup */}
+      <Modal
+        visible={showTypeSheet}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowTypeSheet(false)}
+      >
+        <BlurView style={StyleSheet.absoluteFill} intensity={Platform.OS === 'ios' ? 3 : 100} tint={colorScheme}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+            <View style={[styles.modalContent, { width: '80%', backgroundColor: theme.surface, borderRadius: 16 }]}> 
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Tür Filtresi</Text>
+                <TouchableOpacity onPress={() => setShowTypeSheet(false)}>
+                  <MaterialCommunityIcons name="close" size={20} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.filterTypeButtons, { marginTop: 4 }]}>
+                {[
+                  { id: 'all', label: 'Tümü', icon: 'swap-horizontal' },
+                  { id: 'income', label: 'Gelir', icon: 'cash-plus' },
+                  { id: 'expense', label: 'Gider', icon: 'cash-minus' },
+                ].map((opt) => (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={[styles.filterTypeButton, filterType === (opt.id as any) && { backgroundColor: theme.primary + '20' }]}
+                    onPress={() => {
+                      setFilterType(opt.id as any);
+                      setShowTypeSheet(false);
+                    }}
+                  >
+                    <MaterialCommunityIcons name={opt.icon as any} size={20} color={filterType === (opt.id as any) ? theme.primary : theme.textDim} />
+                    <Text style={[styles.filterTypeButtonText, { color: filterType === (opt.id as any) ? theme.primary : theme.textDim }]}> 
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        </BlurView>
+      </Modal>
       {renderTabFilters()}
       {showCustomDatePicker && (
         <DateTimePicker

@@ -1,6 +1,6 @@
-import { collection, addDoc, getDocs, query, where, orderBy, Timestamp, deleteDoc, doc, updateDoc, limit, startAfter } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import { User } from 'firebase/auth';
+import { addDoc, collection, deleteDoc, doc, getDocs, limit, orderBy, query, startAfter, Timestamp, updateDoc, where } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 export type TransactionType = 'income' | 'expense';
 
@@ -265,6 +265,27 @@ export const getTransactionsByDateRange = async (startDate: Date, endDate: Date,
     createdAt: doc.data().createdAt.toDate(),
     updatedAt: doc.data().updatedAt.toDate(),
   } as Transaction));
+};
+
+// Tarih aralığına göre TÜM kullanıcılar için işlemleri getir (admin özetleri için)
+export const getTransactionsByDateRangeAllUsers = async (startDate: Date, endDate: Date): Promise<Transaction[]> => {
+  const qAll = query(
+    collection(db, 'transactions'),
+    where('date', '>=', Timestamp.fromDate(startDate)),
+    where('date', '<=', Timestamp.fromDate(endDate)),
+    orderBy('date', 'desc')
+  );
+  const snapshot = await getDocs(qAll);
+  return snapshot.docs.map(d => {
+    const data = d.data() as any;
+    return {
+      id: d.id,
+      ...data,
+      date: data.date.toDate(),
+      createdAt: data.createdAt.toDate(),
+      updatedAt: data.updatedAt.toDate(),
+    } as Transaction;
+  });
 };
 
 // İşlem sil
