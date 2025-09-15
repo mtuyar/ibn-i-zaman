@@ -1,15 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import Colors from '../constants/Colors';
-import { useColorScheme } from 'react-native';
-import Header from '../components/Header';
-import { useRouter } from 'expo-router';
-import { getWeeklyTaskCompletionSummaryV2, getCategoryCompletionSummary, getLast7DaysCompletion, getLast7DaysDebug } from '../services/TaskAnalysisService';
-import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import Header from '../components/Header';
+import Colors from '../constants/Colors';
+import { useAuth } from '../context/AuthContext';
+import { getActiveDailyTasks, getCategoryCompletionSummary, getLast7DaysCompletion, getLast7DaysDebug, getWeeklyLeaderboard, getWeeklyTaskCompletionSummaryV2, getWeeklyTaskLeaderboard } from '../services/TaskAnalysisService';
 
 // Yeni renk paleti
 const newColors = {
@@ -160,7 +159,7 @@ const mockTaskPerformance = [
 export default function AnalyticsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const [tab, setTab] = useState<'genel' | 'gunluk' | 'detay'>('genel');
+  const [tab, setTab] = useState<'genel' | 'gunluk' | 'detay' | 'siralama'>('genel');
   const router = useRouter();
   const days = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
   const { user } = useAuth();
@@ -168,10 +167,20 @@ export default function AnalyticsScreen() {
   const [weeklySummary, setWeeklySummary] = useState<{ total: number, completed: number } | null>(null);
   const [last7Days, setLast7Days] = useState<number[]>([]);
   const [categorySummary, setCategorySummary] = useState<{ daily: { total: number; completed: number }; weekly: { total: number; completed: number }; monthly: { total: number; completed: number } } | null>(null);
+  const [leaderboard, setLeaderboard] = useState<{ start: Date; end: Date; daysInRange: number; items: Array<{ userId: string; displayName: string; points: number; fullDays: number; completedCount: number; }>; } | null>(null);
+  const [leaderboardRef, setLeaderboardRef] = useState<Date | null>(null);
+  const [lbMode, setLbMode] = useState<'haftalik' | 'vazife'>('haftalik');
+  const [tasks, setTasks] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskLeaderboard, setTaskLeaderboard] = useState<{ start: Date; end: Date; daysInRange: number; items: Array<{ userId: string; displayName: string; points: number; fullDays: number; completedCount: number; }>; } | null>(null);
+
+  // Debug flag to silence analytics logs
+  const ANALYTICS_DEBUG = false;
 
   // Debug logs for incoming analytics data
   useEffect(() => {
     try {
+      if (!ANALYTICS_DEBUG) return;
       console.log('[Analytics] last7Days:', last7Days);
       console.log('[Analytics] categorySummary.daily:', categorySummary?.daily);
       console.log('[Analytics] weeklySummary:', weeklySummary);
@@ -186,23 +195,40 @@ export default function AnalyticsScreen() {
     }
   }, [user]);
 
+  // Aktif günlük vazifeleri çek (vazife bazlı mod için)
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await getActiveDailyTasks();
+        setTasks(list);
+        if (list.length > 0 && !selectedTaskId) setSelectedTaskId(list[0].id);
+      } catch {}
+    })();
+  }, []);
+
   const loadAnalytics = async () => {
     try {
       setLoading(true);
+      const t0 = Date.now();
       if (user) {
-        const [summary, last7, cats, debug] = await Promise.all([
+        const [summary, last7, cats, debug, lb] = await Promise.all([
           getWeeklyTaskCompletionSummaryV2(user.uid),
           getLast7DaysCompletion(user.uid),
           getCategoryCompletionSummary(user.uid),
           getLast7DaysDebug(user.uid),
+          getWeeklyLeaderboard(leaderboardRef || undefined),
         ]);
         setWeeklySummary(summary);
         setLast7Days(last7 || []);
         setCategorySummary(cats);
+        setLeaderboard(lb);
+        try { if (ANALYTICS_DEBUG) console.log('[UI] leaderboard length', lb?.items.length || 0, 'ms', Date.now() - t0); } catch {}
         try {
-          console.log('[Analytics:UI debug] keys', debug.keys);
-          console.log('[Analytics:UI debug] dailyTaskIds', debug.dailyTaskIds);
-          console.log('[Analytics:UI debug] raw sample (inRange only)', debug.raw.filter(r => r.inRange));
+          if (ANALYTICS_DEBUG) {
+            console.log('[Analytics:UI debug] keys', debug.keys);
+            console.log('[Analytics:UI debug] dailyTaskIds', debug.dailyTaskIds);
+            console.log('[Analytics:UI debug] raw sample (inRange only)', debug.raw.filter(r => r.inRange));
+          }
         } catch {}
       }
     } catch (error) {
@@ -210,12 +236,63 @@ export default function AnalyticsScreen() {
       setWeeklySummary({ total: 0, completed: 0 });
       setLast7Days([]);
       setCategorySummary({ daily: { total: 0, completed: 0 }, weekly: { total: 0, completed: 0 }, monthly: { total: 0, completed: 0 } });
+      setLeaderboard({ start: new Date(), end: new Date(), daysInRange: 0, items: [] });
     } finally {
       setLoading(false);
     }
   };
 
+  // Minimal timing logger for leaderboard fetches when Sıralamalar açık
+  const loadLeaderboardForRef = async (ref?: Date) => {
+    try {
+      const base = ref || leaderboardRef || undefined;
+      if (lbMode === 'haftalik') {
+        const lb = await getWeeklyLeaderboard(base);
+        setLeaderboard(lb);
+      } else if (lbMode === 'vazife' && selectedTaskId) {
+        const tlb = await getWeeklyTaskLeaderboard(selectedTaskId, base);
+        setTaskLeaderboard(tlb);
+      }
+    } catch (e) {
+      // no-op
+    }
+  };
+
   const weeklyPercent = weeklySummary ? Math.round((weeklySummary.completed / Math.max(weeklySummary.total, 1)) * 100) : 0;
+
+  const handlePrevWeek = () => {
+    const base = leaderboard?.start ? new Date(leaderboard.start) : new Date();
+    base.setDate(base.getDate() - 7);
+    setLeaderboardRef(base);
+    if (tab === 'siralama') {
+      loadLeaderboardForRef(base);
+    }
+  };
+
+  const handleNextWeek = () => {
+    const base = leaderboard?.start ? new Date(leaderboard.start) : new Date();
+    base.setDate(base.getDate() + 7);
+    setLeaderboardRef(base);
+    if (tab === 'siralama') {
+      loadLeaderboardForRef(base);
+    }
+  };
+
+  // When Sıralamalar tab opens, fetch leaderboard and log only duration
+  useEffect(() => {
+    if (tab === 'siralama') {
+      loadLeaderboardForRef(leaderboardRef || undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // Vazife değiştiğinde ilgili lider board'u yükle
+  useEffect(() => {
+    if (tab === 'siralama' && lbMode === 'vazife' && selectedTaskId) {
+      loadLeaderboardForRef(leaderboardRef || undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lbMode, selectedTaskId]);
 
   // Genel Analiz kartı
   const renderCard = (card: any) => {
@@ -270,6 +347,8 @@ export default function AnalyticsScreen() {
         showNotification={false} 
         leftButton={<Ionicons name="arrow-back" size={24} color="#FFF" />}
         onLeftButtonPress={() => router.back()}
+        rightButton={<Ionicons name="trophy" size={22} color="#FFF" />}
+        onRightButtonPress={() => setTab('siralama')}
       />
       {/* Yeni Tab Bar */}
       <View style={styles.tabBar}>
@@ -582,7 +661,7 @@ export default function AnalyticsScreen() {
               </LinearGradient>
             </View>
           </>
-        ) : (
+        ) : tab === 'detay' ? (
           <>
             <Text style={styles.title}>Detaylı Alışkanlık Analizi</Text>
             
@@ -651,6 +730,78 @@ export default function AnalyticsScreen() {
                   </View>
                 </View>
               </View>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <TouchableOpacity onPress={handlePrevWeek} style={{ padding: 6 }}>
+                <Ionicons name="chevron-back" size={22} color={theme.text} />
+              </TouchableOpacity>
+              <Text style={styles.title}>
+                {leaderboard ? `${format(new Date(leaderboard.start), 'd MMMM', { locale: tr })} – ${format(new Date(leaderboard.end), 'd MMMM', { locale: tr })} haftası` : 'Sıralamalar'}
+              </Text>
+              <TouchableOpacity onPress={handleNextWeek} style={{ padding: 6 }}>
+                <Ionicons name="chevron-forward" size={22} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            {/* Sıralama alt sekmeleri */}
+            <View style={{ flexDirection: 'row', backgroundColor: '#F2F3F5', borderRadius: 10, padding: 4, marginBottom: 10 }}>
+              <TouchableOpacity onPress={() => { setLbMode('haftalik'); setTaskLeaderboard(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: lbMode==='haftalik' ? '#fff' : 'transparent' }}>
+                <Text style={{ fontWeight: '600', color: lbMode==='haftalik' ? '#111' : '#666' }}>Haftalık</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setLbMode('vazife'); setLeaderboard(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: lbMode==='vazife' ? '#fff' : 'transparent' }}>
+                <Text style={{ fontWeight: '600', color: lbMode==='vazife' ? '#111' : '#666' }}>Vazife Bazlı</Text>
+              </TouchableOpacity>
+            </View>
+
+            {lbMode==='vazife' && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                <Text style={{ fontWeight: '600', marginRight: 8, color: theme.text }}>Vazife:</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {tasks.map(t => (
+                      <TouchableOpacity key={t.id} onPress={() => setSelectedTaskId(t.id)} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 16, backgroundColor: selectedTaskId===t.id ? '#E8EAED' : '#F6F7F9' }}>
+                        <Text style={{ color: '#111' }} numberOfLines={1}>{t.title}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+            )}
+
+            <View style={styles.taskPerformanceContainer}>
+              {(
+                (lbMode==='haftalik' && leaderboard && leaderboard.items.length > 0) ||
+                (lbMode==='vazife' && taskLeaderboard && taskLeaderboard.items.length > 0)
+              ) ? (
+                (lbMode==='haftalik' ? (leaderboard?.items || []) : (taskLeaderboard?.items || [])).map((item, idx) => (
+                  <View key={item.userId} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+                    {/* Üst satır: sıra + ikon + isim (sol), puan (sağ) */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                        <Text style={{ width: 22, textAlign: 'right', fontWeight: 'bold', color: '#666', marginRight: 8 }}>{idx + 1}.</Text>
+                        <Ionicons name={idx === 0 ? 'trophy' : 'person-circle'} size={20} color={idx === 0 ? '#FFD93D' : '#888'} style={{ marginRight: 8 }} />
+                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontWeight: '600', color: '#222', flexShrink: 1 }}>
+                          {item.displayName}
+                        </Text>
+                      </View>
+                      <Text style={{ fontWeight: '700', color: '#222', marginLeft: 12 }}>{item.points}</Text>
+                    </View>
+                    {/* Alt satır: detay sağda tek satır */}
+                    <View style={{ marginTop: 4 }}>
+                      <Text style={{ fontSize: 12, color: '#666', textAlign: 'right' }} numberOfLines={1} ellipsizeMode="tail">
+                        {item.fullDays}/{(lbMode==='haftalik' ? (leaderboard?.daysInRange || 0) : (taskLeaderboard?.daysInRange || 0))} tam gün • {item.completedCount} tamamlanan
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                  <Ionicons name="people" size={48} color={theme.textDim} style={{ marginBottom: 8 }} />
+                  <Text style={{ color: theme.textDim }}>Henüz bu hafta puan alan yok.</Text>
+                </View>
+              )}
             </View>
           </>
         )}

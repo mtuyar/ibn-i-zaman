@@ -1,6 +1,11 @@
-import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { endOfWeek, format, startOfWeek } from 'date-fns';
+import { collection, getDocs, query, Timestamp, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { startOfWeek, endOfWeek, format, addDays } from 'date-fns';
+import { getUsersByIds, User } from './UserService';
+
+// Debug flag for analytics/service logs
+const ANALYTICS_DEBUG = false;
+const dbg = (...args: any[]) => { try { if (ANALYTICS_DEBUG) console.log(...args); } catch {} };
 
 // Haftalık toplam ve tamamlanan vazife: Günlük*7 + Haftalık; tamamlananlar userTaskStatuses'tan (client-side filtre)
 export async function getWeeklyTaskCompletionSummaryV2(userId: string): Promise<{ total: number, completed: number }> {
@@ -180,7 +185,7 @@ export async function getLast7DaysCompletion(userId: string): Promise<number[]> 
   });
 
   const result = keys.map(k => counts[k] || 0);
-  try { console.log('[Analytics:getLast7] keys', keys, 'dailyTotal', dailyIds.size, 'result', result); } catch {}
+  try { dbg('[Analytics:getLast7] keys', keys, 'dailyTotal', dailyIds.size, 'result', result); } catch {}
   return result;
 }
 
@@ -304,11 +309,287 @@ export async function getLast7DaysDebug(userId: string): Promise<{
   });
 
   try {
-    console.log('[Analytics:debug] keys', keys);
-    console.log('[Analytics:debug] dailyTaskIds', dailyTaskIds);
-    console.log('[Analytics:debug] rawCount', raw.length);
-    console.log('[Analytics:debug] rawInRange', raw.filter(r => r.inRange));
+    dbg('[Analytics:debug] keys', keys);
+    dbg('[Analytics:debug] dailyTaskIds', dailyTaskIds);
+    dbg('[Analytics:debug] rawCount', raw.length);
+    dbg('[Analytics:debug] rawInRange', raw.filter(r => r.inRange));
   } catch {}
 
   return { keys, dailyTaskIds, raw };
 } 
+
+// Haftalık (Pzt→bugün) kişi bazlı sıralama (sadece günlük vazifeler)
+export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
+  start: Date;
+  end: Date;
+  daysInRange: number;
+  items: Array<{
+    userId: string;
+    displayName: string;
+    points: number;
+    fullDays: number;
+    completedCount: number;
+  }>;
+}> {
+  const t0 = Date.now();
+  const today = new Date();
+  const base = referenceDate ? new Date(referenceDate) : today;
+  const weekStart = startOfWeek(base, { weekStartsOn: 1 });
+  const endCandidate = endOfWeek(base, { weekStartsOn: 1 });
+  const isCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }).getTime() === weekStart.getTime();
+  const weekEnd = isCurrentWeek ? (today < endCandidate ? today : endCandidate) : endCandidate;
+
+  const start = new Date(weekStart);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(weekEnd);
+  end.setHours(23, 59, 59, 999);
+
+  const dateKeys: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dateKeys.push(format(cursor, 'yyyy-MM-dd'));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Aktif günlük vazife sayısı (N)
+  // Cache active daily definition IDs (TTL 10 min)
+  type CacheBucket = { ids: Set<string>; expires: number };
+  const globalAny: any = globalThis as any;
+  if (!globalAny.__daily_defs_cache) globalAny.__daily_defs_cache = { ids: new Set<string>(), expires: 0 } as CacheBucket;
+  let cache: CacheBucket = globalAny.__daily_defs_cache as CacheBucket;
+  const now = Date.now();
+  let tDefs0 = now, tDefs1 = now;
+  if (cache.expires < now || cache.ids.size === 0) {
+    tDefs0 = Date.now();
+    const defsSnap = await getDocs(query(
+      collection(db, 'taskDefinitions'),
+      where('isActive', '==', true),
+      where('category', '==', 'daily')
+    ));
+    tDefs1 = Date.now();
+    const next = new Set<string>();
+    defsSnap.forEach(d => next.add(d.id));
+    cache = { ids: next, expires: now + 10 * 60 * 1000 };
+    globalAny.__daily_defs_cache = cache;
+  }
+  const dailyDefIds = cache.ids;
+  const N = dailyDefIds.size || 0;
+  if (N === 0) {
+    return { start, end, daysInRange: dateKeys.length, items: [] };
+  }
+
+  // Tek sorgu: userTaskStatuses (Timestamp tarih alanı) ve yalnız completed
+  let tsSnap: any = { forEach: (_: any) => {} };
+  const tStatus0 = Date.now();
+  tsSnap = await getDocs(query(
+    collection(db, 'userTaskStatuses'),
+    where('status', '==', 'completed'),
+    where('completedAt', '>=', Timestamp.fromDate(start)),
+    where('completedAt', '<=', Timestamp.fromDate(end))
+  ));
+  const tStatus1 = Date.now();
+
+  type DayMap = Record<string, number>;
+  const byUser: Record<string, DayMap> = {};
+
+  const ingest = (docs: any) => {
+    docs.forEach((s: any) => {
+      const data: any = s.data();
+      if (data?.status !== 'completed') return; // filter client-side to drop non-completed
+      const userId: string | undefined = data?.userId;
+      if (!userId) return;
+
+      let dateKey: string | undefined;
+      if (typeof data?.date === 'string') {
+        dateKey = data.date;
+      } else if (data?.date?.toDate) {
+        dateKey = format(data.date.toDate(), 'yyyy-MM-dd');
+      } else if (data?.date instanceof Date) {
+        dateKey = format(data.date, 'yyyy-MM-dd');
+      } else if (data?.completedAt?.toDate) {
+        dateKey = format(data.completedAt.toDate(), 'yyyy-MM-dd');
+      }
+      if (!dateKey || !dateKeys.includes(dateKey)) return;
+
+      const rawTaskId: string | undefined = data?.taskDefId || data?.taskId;
+      let taskDefId: string | undefined = rawTaskId;
+      if (rawTaskId && !dailyDefIds.has(rawTaskId)) {
+        const parts = rawTaskId.split('_');
+        for (const p of parts) {
+          if (dailyDefIds.has(p)) { taskDefId = p; break; }
+        }
+      }
+      if (!taskDefId || !dailyDefIds.has(taskDefId)) return;
+
+      if (!byUser[userId]) byUser[userId] = {};
+      byUser[userId][dateKey] = (byUser[userId][dateKey] || 0) + 1;
+    });
+  };
+
+  // Yalnız tek sorgu ingest
+  ingest(tsSnap);
+
+  const perTaskPoint = 100 / N;
+  const tUsers0 = Date.now();
+  const involvedUserIds = Object.keys(byUser);
+  // Simple name cache with TTL (30 min) to avoid refetching across calls
+  const gAny: any = globalThis as any;
+  if (!gAny.__user_name_cache) gAny.__user_name_cache = { map: new Map<string, { name: string; exp: number }>() };
+  const nameCache: Map<string, { name: string; exp: number }> = gAny.__user_name_cache.map;
+  const nowTs = Date.now();
+  const idToName: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const uid of involvedUserIds) {
+    const hit = nameCache.get(uid);
+    if (hit && hit.exp > nowTs) {
+      idToName[uid] = hit.name;
+    } else {
+      missing.push(uid);
+    }
+  }
+  if (missing.length > 0) {
+    const fetched = await getUsersByIds(missing).catch(() => [] as User[]);
+    fetched.forEach(u => {
+      const nm = u.displayName || u.fullName || u.email || u.id;
+      idToName[u.id] = nm;
+      nameCache.set(u.id, { name: nm, exp: nowTs + 30 * 60 * 1000 });
+    });
+  }
+  const tUsers1 = Date.now();
+
+  const items = Object.keys(byUser).map(userId => {
+    const dayCounts = byUser[userId];
+    let completedCount = 0;
+    let fullDays = 0;
+    Object.values(dayCounts).forEach(c => {
+      completedCount += c;
+      if (c >= N) fullDays += 1;
+    });
+    const rawPoints = completedCount * perTaskPoint;
+    const points = Math.round(rawPoints * 100) / 100;
+    return {
+      userId,
+      displayName: idToName[userId] || userId,
+      points,
+      fullDays,
+      completedCount,
+    };
+  })
+  .filter(item => item.completedCount > 0)
+  .sort((a, b) => (
+    b.points - a.points || b.fullDays - a.fullDays || b.completedCount - a.completedCount
+  ));
+
+  const t1 = Date.now();
+  try {
+    dbg('[LB] refs', { start, end, days: dateKeys.length });
+    dbg('[LB] timings(ms)', {
+      total: t1 - t0,
+      defs: tDefs1 - tDefs0,
+      comps: 0,
+      statuses: tStatus1 - tStatus0,
+      users: tUsers1 - tUsers0,
+      ingestCount: items.length,
+    });
+  } catch {}
+  return { start, end, daysInRange: dateKeys.length, items };
+}
+
+// Aktif günlük vazifeleri basit liste olarak getir
+export async function getActiveDailyTasks(): Promise<Array<{ id: string; title: string }>> {
+  const snap = await getDocs(query(
+    collection(db, 'taskDefinitions'),
+    where('isActive', '==', true),
+    where('category', '==', 'daily')
+  ));
+  const items: Array<{ id: string; title: string }> = [];
+  snap.forEach(d => {
+    const data: any = d.data();
+    items.push({ id: d.id, title: String(data?.title || d.id) });
+  });
+  return items;
+}
+
+// Belirli bir günlük vazife için (taskDefId) haftalık liderlik tablosu
+export async function getWeeklyTaskLeaderboard(taskDefId: string, referenceDate?: Date): Promise<{
+  start: Date;
+  end: Date;
+  daysInRange: number;
+  items: Array<{
+    userId: string;
+    displayName: string;
+    points: number;
+    fullDays: number;
+    completedCount: number;
+  }>;
+}> {
+  const today = new Date();
+  const base = referenceDate ? new Date(referenceDate) : today;
+  const weekStart = startOfWeek(base, { weekStartsOn: 1 });
+  const endCandidate = endOfWeek(base, { weekStartsOn: 1 });
+  const isCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }).getTime() === weekStart.getTime();
+  const weekEnd = isCurrentWeek ? (today < endCandidate ? today : endCandidate) : endCandidate;
+
+  const start = new Date(weekStart);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(weekEnd);
+  end.setHours(23, 59, 59, 999);
+
+  const tsSnap = await getDocs(query(
+    collection(db, 'userTaskStatuses'),
+    where('status', '==', 'completed'),
+    where('completedAt', '>=', Timestamp.fromDate(start)),
+    where('completedAt', '<=', Timestamp.fromDate(end))
+  ));
+
+  const byUser: Record<string, number> = {};
+  tsSnap.forEach(s => {
+    const data: any = s.data();
+    const uid: string | undefined = data?.userId;
+    if (!uid) return;
+    const raw = data?.taskDefId || data?.taskId;
+    if (!raw) return;
+    let matched = false;
+    if (raw === taskDefId) matched = true; else if (typeof raw === 'string') matched = raw.split('_').includes(taskDefId);
+    if (!matched) return;
+    byUser[uid] = (byUser[uid] || 0) + 1;
+  });
+
+  const involved = Object.keys(byUser);
+  const gAny: any = globalThis as any;
+  if (!gAny.__user_name_cache) gAny.__user_name_cache = { map: new Map<string, { name: string; exp: number }>() };
+  const nameCache: Map<string, { name: string; exp: number }> = gAny.__user_name_cache.map;
+  const nowTs = Date.now();
+  const idToName: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const uid of involved) {
+    const hit = nameCache.get(uid);
+    if (hit && hit.exp > nowTs) idToName[uid] = hit.name; else missing.push(uid);
+  }
+  if (missing.length > 0) {
+    const fetched = await getUsersByIds(missing).catch(() => [] as User[]);
+    fetched.forEach(u => {
+      const nm = u.displayName || u.fullName || u.email || u.id;
+      idToName[u.id] = nm;
+      nameCache.set(u.id, { name: nm, exp: nowTs + 30 * 60 * 1000 });
+    });
+  }
+
+  const daysInRange = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+  const items = involved
+    .map(uid => {
+      const completedDays = byUser[uid] || 0;
+      const points = completedDays * 100; // per-task: 1 gün = 100 puan
+      return {
+        userId: uid,
+        displayName: idToName[uid] || uid,
+        points,
+        fullDays: completedDays,
+        completedCount: completedDays,
+      };
+    })
+    .filter(it => it.completedCount > 0)
+    .sort((a, b) => b.points - a.points || b.completedCount - a.completedCount);
+
+  return { start, end, daysInRange, items };
+}

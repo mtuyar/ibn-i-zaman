@@ -1,13 +1,14 @@
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  query, 
-  where, 
-  updateDoc,
+import {
+  collection,
+  doc,
+  documentId,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
   setDoc,
-  serverTimestamp 
+  updateDoc,
+  where
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
@@ -93,6 +94,26 @@ export const getAllUsers = async (): Promise<User[]> => {
   } catch (error) {
     console.error('Kullanıcıları getirme hatası:', error);
     throw error;
+  }
+};
+
+// Sadece belirtilen ID'ler için kullanıcıları getir (max 10'luk batch'ler)
+export const getUsersByIds = async (ids: string[]): Promise<User[]> => {
+  try {
+    if (!ids || ids.length === 0) return [];
+    const unique = Array.from(new Set(ids));
+    const usersCol = collection(db, 'users');
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += 10) chunks.push(unique.slice(i, i + 10));
+    const results: User[] = [];
+    for (const ch of chunks) {
+      const snap = await getDocs(query(usersCol, where(documentId(), 'in', ch as any)));
+      snap.forEach(d => { results.push({ id: d.id, ...(d.data() as any) }); });
+    }
+    return results;
+  } catch (error) {
+    console.error('Kullanıcıları (IDs) getirme hatası:', error);
+    return [];
   }
 };
 

@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform, Dimensions, StatusBar } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useColorScheme } from 'react-native';
-import Colors from '../constants/Colors';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useEffect, useState } from 'react';
+import { Dimensions, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Colors from '../constants/Colors';
 
 const { width } = Dimensions.get('window');
 
@@ -15,6 +14,8 @@ interface HeaderProps {
   isProfileScreen?: boolean;
   leftButton?: React.ReactNode;
   onLeftButtonPress?: () => void;
+  rightButton?: React.ReactNode;
+  onRightButtonPress?: () => void;
 }
 
 const notifications = [
@@ -48,6 +49,8 @@ export default function Header({
   isProfileScreen = false,
   leftButton,
   onLeftButtonPress,
+  rightButton,
+  onRightButtonPress,
 }: HeaderProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const insets = useSafeAreaInsets();
@@ -149,8 +152,16 @@ export default function Header({
           <View style={styles.titleContainer}>
             <Text style={styles.title}>{title}</Text>
           </View>
-          {/* Sağ taraf - Bildirim ikon */}
-          {showNotification ? (
+          {/* Sağ taraf - Özel buton veya bildirim ikon */}
+          {rightButton ? (
+            <TouchableOpacity
+              style={styles.analyticsButton}
+              onPress={onRightButtonPress}
+              accessibilityRole="button"
+            >
+              {rightButton}
+            </TouchableOpacity>
+          ) : showNotification ? (
             <TouchableOpacity
               style={styles.notificationButton}
               onPress={() => setIsModalVisible(true)}>
