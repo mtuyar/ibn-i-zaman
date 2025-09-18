@@ -1,19 +1,18 @@
-import 'react-native-gesture-handler';
-import 'react-native-reanimated';
-import React, { useEffect, useState } from 'react';
-import { Stack, SplashScreen } from 'expo-router';
-import { useFonts } from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Platform, StatusBar, Text, AppState } from 'react-native';
-import { useColorScheme } from 'react-native';
+import { useFonts } from 'expo-font';
+import * as NavigationBar from 'expo-navigation-bar';
+import { SplashScreen, Stack } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { AppState, Platform, StatusBar, useColorScheme, View } from 'react-native';
+import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import 'react-native-reanimated';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Colors from '../constants/Colors';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as NavigationBar from 'expo-navigation-bar';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { initializeUserStatus, updateUserStatus, updateLastSeen } from '../services/UserStatusService';
 import { rescheduleDailyIfNeeded } from '../services/DailyRescheduler';
 import { initialize as initNotifications } from '../services/NotificationService';
+import { initializeUserStatus, updateLastSeen, updateUserStatus } from '../services/UserStatusService';
 
 // Firebase'i doğrudan import et
 import { auth } from '../config/firebase';
@@ -82,14 +81,13 @@ export default function RootLayout() {
     checkAuth();
   }, []);
 
-  // Hem Splash, hem Notification init ve Navigation Bar için useEffect
+// Hem Notification init ve Navigation Bar için useEffect
   useEffect(() => {
     if (fontsLoaded && isFirebaseReady) {
       // Bildirimleri hazırla ve Android için sıradaki bildirimi kur
       (async () => {
         await initNotifications();
         await rescheduleDailyIfNeeded();
-        await SplashScreen.hideAsync();
       })().catch(console.error);
     }
     
@@ -104,36 +102,54 @@ export default function RootLayout() {
     return null;
   }
 
+  function AuthGate() {
+    const { isLoading } = useAuth();
+
+    useEffect(() => {
+      if (!isLoading && fontsLoaded && isFirebaseReady) {
+        SplashScreen.hideAsync().catch(() => {});
+      }
+    }, [isLoading]);
+
+    if (isLoading) {
+      return null;
+    }
+
+    return (
+      <AppStateWrapper>
+        <SafeAreaProvider>
+          <View style={{ flex: 1, backgroundColor: theme.background }}>
+            {Platform.OS === 'ios' && (
+              <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
+            )}
+            <Stack screenOptions={{ headerShown: false }}>
+              {/* Auth ekranları */}
+              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+              
+              {/* Tab ekranları */}
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              
+              {/* Diğer ekranlar */}
+              <Stack.Screen name="programs" options={{ headerShown: false }} />
+              
+              {/* Chat ekranı */}
+              <Stack.Screen
+                name="chat/[id]"
+                options={{
+                  headerShown: false,
+                }}
+              />
+            </Stack>
+          </View>
+        </SafeAreaProvider>
+      </AppStateWrapper>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
-        <AppStateWrapper>
-          <SafeAreaProvider>
-            <View style={{ flex: 1, backgroundColor: theme.background }}>
-              {Platform.OS === 'ios' && (
-                <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
-              )}
-              <Stack screenOptions={{ headerShown: false }}>
-                {/* Auth ekranları */}
-                <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                
-                {/* Tab ekranları */}
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                
-                {/* Diğer ekranlar */}
-                <Stack.Screen name="programs" options={{ headerShown: false }} />
-                
-                {/* Chat ekranı */}
-                <Stack.Screen
-                  name="chat/[id]"
-                  options={{
-                    headerShown: false,
-                  }}
-                />
-              </Stack>
-            </View>
-          </SafeAreaProvider>
-        </AppStateWrapper>
+        <AuthGate />
       </AuthProvider>
     </GestureHandlerRootView>
   );

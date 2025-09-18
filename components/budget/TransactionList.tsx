@@ -45,7 +45,7 @@ export default function TransactionList({ data, theme, categories, onDelete, has
               key={`${transaction.id}-${transactionIndex}-${dateKey}`}
               style={[styles.transactionCard, { backgroundColor: theme.surface }]}
             >
-              <View style={[styles.transactionIcon, { backgroundColor: (category?.color || '#A8E6CF') + '15' }]}>
+              <View style={[styles.transactionIcon, { backgroundColor: (category?.color || theme.primary) + '15' }]}>
                 <MaterialCommunityIcons name={category?.icon as any} size={20} color={category?.color} />
               </View>
               <View style={styles.transactionInfo}>
@@ -62,7 +62,7 @@ export default function TransactionList({ data, theme, categories, onDelete, has
                 </Text>
               </View>
               <View style={styles.transactionAmountContainer}>
-                <Text style={[styles.transactionAmount, { color: transaction.type === 'income' ? '#4CAF50' : '#FF6B6B' }]}>
+                <Text style={[styles.transactionAmount, { color: transaction.type === 'income' ? theme.success : theme.error }]}>
                   {transaction.type === 'income' ? '+' : '-'}₺{transaction.amount.toFixed(0)}
                 </Text>
                 <TouchableOpacity style={styles.deleteButton} onPress={() => onDelete(transaction.id)}>

@@ -1,11 +1,10 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
-import { useColorScheme, Platform, View, Pressable } from 'react-native';
-import Colors from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../context/AuthContext';
-import { Redirect } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
+import React from 'react';
+import { Platform, Pressable, useColorScheme, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Colors from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -25,6 +24,7 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           tabBarActiveTintColor: theme.primary,
+          tabBarInactiveTintColor: theme.tabIconDefault,
           headerShown: false, // Header'ı gizle
           tabBarStyle: {
             backgroundColor: theme.surface,
@@ -37,7 +37,7 @@ export default function TabLayout() {
             paddingTop: 8,
             borderTopWidth: 0,
             elevation: Platform.OS === 'android' ? 8 : 0, // Android için gölge
-            shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent', // iOS için gölge
+            shadowColor: Platform.OS === 'ios' ? (colorScheme === 'dark' ? '#000' : '#000') : 'transparent', // iOS için gölge
             shadowOffset: { width: 0, height: -3 },
             shadowOpacity: 0.1,
             shadowRadius: 3,

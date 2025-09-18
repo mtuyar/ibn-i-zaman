@@ -1,34 +1,33 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  RefreshControl,
-  ScrollView,
-  TouchableOpacity,
-  Dimensions,
-  Animated,
-  Platform,
-  Switch,
-  Modal,
-  TouchableWithoutFeedback,
-} from 'react-native';
-import { TaskItem } from './TaskItem';
-import { TaskDefinition, TaskCategory } from '../types/firestore';
-import { Task } from '../app/types/task.types';
-import { getDailyTasks, getWeeklyTasks, getMonthlyTasks } from '../services/TaskService';
-import { useAuth } from '../context/AuthContext';
-import { format, subDays, isToday, isYesterday, isSameDay } from 'date-fns';
-import { tr } from 'date-fns/locale';
-import Colors from '../constants/Colors';
-import { useColorScheme } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format, isSameDay, isToday, isYesterday, subDays } from 'date-fns';
+import { tr } from 'date-fns/locale';
+import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    Animated,
+    Dimensions,
+    FlatList,
+    Modal,
+    Platform,
+    RefreshControl,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    useColorScheme,
+    View
+} from 'react-native';
+import { Task } from '../app/types/task.types';
+import Colors from '../constants/Colors';
+import { useAuth } from '../context/AuthContext';
 import { NotificationService } from '../services/NotificationService';
+import { getDailyTasks, getMonthlyTasks, getWeeklyTasks } from '../services/TaskService';
+import { TaskCategory } from '../types/firestore';
+import { TaskItem } from './TaskItem';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DATE_ITEM_WIDTH = 65;
@@ -240,6 +239,7 @@ export function TaskList({ category, onError, date, onDateChange }: TaskListProp
             isYesterday && styles.yesterdayCircle,
             !isEditable && styles.readonlyCircle,
             isSelected && !isEditable && styles.readonlySelectedCircle,
+            { backgroundColor: isSelected ? theme.primary : 'transparent', borderColor: isSelected ? theme.primary : 'transparent', shadowColor: isSelected ? theme.primary : undefined }
           ]}>
             <Text style={[
               styles.dateNumber,
@@ -248,6 +248,7 @@ export function TaskList({ category, onError, date, onDateChange }: TaskListProp
               isYesterday && styles.yesterdayNumber,
               !isEditable && styles.readonlyNumber,
               isSelected && !isEditable && styles.readonlySelectedNumber,
+              { color: isSelected ? '#FFFFFF' : theme.text }
             ]}>
               {format(date, 'd')}
             </Text>
@@ -266,7 +267,7 @@ export function TaskList({ category, onError, date, onDateChange }: TaskListProp
               <MaterialCommunityIcons
                 name="lock"
                 size={12}
-                color={isSelected ? '#1976D2' : '#9E9E9E'}
+                color={isSelected ? theme.primary : theme.textDim}
               />
             </View>
           )}
@@ -547,7 +548,6 @@ export function TaskList({ category, onError, date, onDateChange }: TaskListProp
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   headerContainer: {
     flexDirection: 'row',
@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    borderBottomColor: 'transparent',
   },
   categoryContainer: {
     flexDirection: 'row',
@@ -595,7 +595,6 @@ const styles = StyleSheet.create({
   },
   dateSelector: {
     paddingVertical: 20,
-    backgroundColor: '#FFFFFF',
   },
   dateScrollContent: {
     paddingHorizontal: 20,
@@ -637,7 +636,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
@@ -653,30 +652,17 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  todayCircle: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#1976D2',
-    borderWidth: 1.5,
-  },
-  yesterdayCircle: {
-    backgroundColor: '#F5F5F5',
-    borderColor: '#E0E0E0',
-    borderWidth: 1.5,
-  },
+  todayCircle: {},
+  yesterdayCircle: {},
   dateNumber: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#424242',
   },
   dateNumberSelected: {
     color: '#FFFFFF',
   },
-  todayNumber: {
-    color: '#1976D2',
-  },
-  yesterdayNumber: {
-    color: '#424242',
-  },
+  todayNumber: {},
+  yesterdayNumber: {},
   selectedDot: {
     position: 'absolute',
     bottom: -2,
@@ -694,7 +680,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: -4,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    backgroundColor: 'transparent',
     borderRadius: 8,
     padding: 2,
     zIndex: 1,
@@ -821,7 +807,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-    backdropFilter: 'blur(4px)',
   },
   modalContent: {
     width: '90%',
@@ -920,8 +905,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   timePicker: {
-    width: Platform.OS === 'ios' ? '100%' : 200,
-    height: Platform.OS === 'ios' ? 200 : 50,
+    width: 200,
+    height: 50,
   },
   taskCard: {
     marginBottom: 8,

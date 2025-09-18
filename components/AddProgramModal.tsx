@@ -1,27 +1,22 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
-  TextInput,
-  ScrollView,
-  Platform,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  TouchableWithoutFeedback,
-  Keyboard,
-  Dimensions,
-  Animated,
-  StatusBar
+    ActivityIndicator,
+    Animated,
+    Dimensions,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useColorScheme,
+    View
 } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Program } from '../services/ProgramService';
 import Colors from '../constants/Colors';
-import { useColorScheme } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
+import { Program } from '../services/ProgramService';
 
 // Available days
 const DAYS = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
@@ -435,7 +430,7 @@ const AddProgramModal: React.FC<AddProgramModalProps> = ({
               }
             ]}
           >
-            <View style={styles.header}>
+            <View style={[styles.header, { borderBottomColor: theme.border }]}>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                 <MaterialCommunityIcons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
@@ -445,8 +440,8 @@ const AddProgramModal: React.FC<AddProgramModalProps> = ({
               <View style={styles.headerRight} />
             </View>
 
-            <View style={styles.progressBar}>
-              <View style={styles.progressTrack}>
+            <View style={[styles.progressBar, { borderBottomColor: theme.border }]}>
+              <View style={[styles.progressTrack, { backgroundColor: `${theme.text}20` }]}>
                 <Animated.View
                   style={[
                     styles.progressFill,
@@ -500,9 +495,9 @@ const AddProgramModal: React.FC<AddProgramModalProps> = ({
               </ScrollView>
             </View>
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, { borderTopColor: theme.border, backgroundColor: theme.surface }]}>
               <TouchableOpacity
-                style={[styles.button, styles.secondaryButton]}
+                style={[styles.button, styles.secondaryButton, { backgroundColor: `${theme.text}10` }]}
                 onPress={currentStep === 1 ? onClose : () => setCurrentStep(1)}
               >
                 <Text style={[styles.buttonText, { color: theme.text }]}>

@@ -41,9 +41,9 @@ export default function AddTransactionModal({ visible, onClose, transactionType,
               </TouchableOpacity>
             </View>
 
-            <View style={styles.transactionTypeSelector}>
+            <View style={[styles.transactionTypeSelector, { backgroundColor: `${theme.text}10` }]}>
               <TouchableOpacity
-                style={[styles.typeButton, transactionType === 'income' && { backgroundColor: '#4CAF50' }]}
+                style={[styles.typeButton, transactionType === 'income' && { backgroundColor: theme.success }]}
                 onPress={() => {
                   setTransactionType('income');
                   const c = categories.find(c => c.type === 'income');
@@ -55,7 +55,7 @@ export default function AddTransactionModal({ visible, onClose, transactionType,
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.typeButton, transactionType === 'expense' && { backgroundColor: '#FF6B6B' }]}
+                style={[styles.typeButton, transactionType === 'expense' && { backgroundColor: theme.error }]}
                 onPress={() => {
                   setTransactionType('expense');
                   const c = categories.find(c => c.type === 'expense');
@@ -132,7 +132,7 @@ export default function AddTransactionModal({ visible, onClose, transactionType,
               />
             )}
 
-            <TouchableOpacity style={[styles.modalButton, { backgroundColor: transactionType === 'income' ? '#4CAF50' : '#FF6B6B' }]} onPress={onSubmit}>
+            <TouchableOpacity style={[styles.modalButton, { backgroundColor: transactionType === 'income' ? theme.success : theme.error }]} onPress={onSubmit}>
               <Text style={styles.modalButtonText}>
                 {transactionType === 'income' ? 'Gelir Ekle' : 'Gider Ekle'}
               </Text>

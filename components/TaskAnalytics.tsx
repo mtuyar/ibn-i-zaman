@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Colors from '../constants/Colors';
-import { useColorScheme } from 'react-native';
-import { TaskAnalytics } from '../app/types/task.types';
-import { BlurView } from 'expo-blur';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useState } from 'react';
+import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { TaskAnalytics } from '../app/types/task.types';
+import Colors from '../constants/Colors';
 
 // Chart bileşenleri için temel yardımcı fonksiyonlar
 const { width } = Dimensions.get('window');
@@ -26,6 +25,15 @@ export default function TaskAnalyticsComponent({ analytics, onClose }: TaskAnaly
   const theme = Colors[colorScheme];
   const [selectedChart, setSelectedChart] = useState<ChartType>('daily');
   const [isLoading, setIsLoading] = useState(true);
+  
+  const hexToRgba = (hex: string, opacity = 1): string => {
+    const h = hex.replace('#', '');
+    const bigint = parseInt(h, 16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
   
   const screenWidth = Dimensions.get('window').width;
   
@@ -68,7 +76,7 @@ export default function TaskAnalyticsComponent({ analytics, onClose }: TaskAnaly
   const chartConfig = {
     backgroundGradientFrom: colorScheme === 'dark' ? theme.surface : '#FFFFFF',
     backgroundGradientTo: colorScheme === 'dark' ? theme.surface : '#FFFFFF',
-    color: (opacity = 1) => `rgba(81, 150, 244, ${opacity})`,
+    color: (opacity = 1) => hexToRgba(theme.primary, opacity),
     strokeWidth: 2,
     barPercentage: 0.5,
     useShadowColorFromDataset: false,
@@ -81,7 +89,7 @@ export default function TaskAnalyticsComponent({ analytics, onClose }: TaskAnaly
     datasets: [
       {
         data: analytics.daily.map(d => (d.completed / d.total) * 100) || [],
-        color: (opacity = 1) => `rgba(81, 150, 244, ${opacity})`,
+        color: (opacity = 1) => hexToRgba(theme.primary, opacity),
         strokeWidth: 2,
       },
     ],
@@ -93,7 +101,7 @@ export default function TaskAnalyticsComponent({ analytics, onClose }: TaskAnaly
     datasets: [
       {
         data: analytics.weekly.map(w => (w.completed / w.total) * 100) || [],
-        color: (opacity = 1) => `rgba(81, 150, 244, ${opacity})`,
+        color: (opacity = 1) => hexToRgba(theme.primary, opacity),
         strokeWidth: 2,
       },
     ],
@@ -105,7 +113,7 @@ export default function TaskAnalyticsComponent({ analytics, onClose }: TaskAnaly
     datasets: [
       {
         data: analytics.monthly.map(m => (m.completed / m.total) * 100) || [],
-        color: (opacity = 1) => `rgba(81, 150, 244, ${opacity})`,
+        color: (opacity = 1) => hexToRgba(theme.primary, opacity),
         strokeWidth: 2,
       },
     ],
@@ -115,7 +123,7 @@ export default function TaskAnalyticsComponent({ analytics, onClose }: TaskAnaly
   const taskData = analytics?.taskBased.map(task => ({
     name: task.taskTitle,
     completionRate: task.completionRate,
-    color: `rgba(81, 150, 244, ${task.completionRate / 100})`,
+    color: hexToRgba(theme.primary, Math.max(0.25, task.completionRate / 100)),
     legendFontColor: theme.text,
     legendFontSize: 12,
   })) || [];

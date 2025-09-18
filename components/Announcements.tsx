@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Dimensions, Modal, ScrollView } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useState } from 'react';
+import { Dimensions, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
 import Colors from '../constants/Colors';
-import { useColorScheme } from 'react-native';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.75;
@@ -58,11 +58,11 @@ export default function Announcements() {
   const getColor = (type: string) => {
     switch (type) {
       case 'emergency':
-        return '#E74C3C';
+        return theme.error;
       case 'warning':
-        return '#F39C12';
+        return theme.warning;
       default:
-        return '#3498DB';
+        return theme.primary;
     }
   };
 
@@ -90,8 +90,8 @@ export default function Announcements() {
       {emergencyAnnouncements.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <MaterialCommunityIcons name="alert-circle" size={20} color="#E74C3C" />
-            <Text style={[styles.sectionTitle, { color: '#E74C3C' }]}>Acil Duyurular</Text>
+            <MaterialCommunityIcons name="alert-circle" size={20} color={theme.error} />
+            <Text style={[styles.sectionTitle, { color: theme.error }]}>Acil Duyurular</Text>
           </View>
           <ScrollView 
             horizontal 
@@ -106,26 +106,55 @@ export default function Announcements() {
                 key={announcement.id}
                 style={[
                   styles.card,
+                  { backgroundColor: colorScheme === 'dark' ? 'transparent' : theme.card },
                   index === 0 ? { marginLeft: width * 0.04 } : {}
                 ]}
                 onPress={() => setIsModalVisible(true)}
               >
-                <View style={[styles.iconContainer, { backgroundColor: `${getColor(announcement.type)}15` }]}>
-                  <MaterialCommunityIcons 
-                    name={getIcon(announcement.type)} 
-                    size={24} 
-                    color={getColor(announcement.type)} 
-                  />
-                </View>
-                <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
-                  {announcement.title}
-                </Text>
-                <Text style={[styles.cardDescription, { color: theme.textDim }]} numberOfLines={2}>
-                  {announcement.description}
-                </Text>
-                <Text style={[styles.cardTime, { color: theme.subtitle }]}>
-                  {announcement.time}
-                </Text>
+                {colorScheme === 'dark' ? (
+                  <LinearGradient
+                    colors={theme.cardGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.cardInner}
+                  >
+                    <View style={[styles.iconContainer, { backgroundColor: `${getColor(announcement.type)}15` }]}>
+                      <MaterialCommunityIcons 
+                        name={getIcon(announcement.type)} 
+                        size={24} 
+                        color={getColor(announcement.type)} 
+                      />
+                    </View>
+                    <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+                      {announcement.title}
+                    </Text>
+                    <Text style={[styles.cardDescription, { color: theme.textDim }]} numberOfLines={2}>
+                      {announcement.description}
+                    </Text>
+                    <Text style={[styles.cardTime, { color: theme.subtitle }]}>
+                      {announcement.time}
+                    </Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={[styles.cardInner, { backgroundColor: theme.card }]}>
+                    <View style={[styles.iconContainer, { backgroundColor: `${getColor(announcement.type)}15` }]}>
+                      <MaterialCommunityIcons 
+                        name={getIcon(announcement.type)} 
+                        size={24} 
+                        color={getColor(announcement.type)} 
+                      />
+                    </View>
+                    <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+                      {announcement.title}
+                    </Text>
+                    <Text style={[styles.cardDescription, { color: theme.textDim }]} numberOfLines={2}>
+                      {announcement.description}
+                    </Text>
+                    <Text style={[styles.cardTime, { color: theme.subtitle }]}>
+                      {announcement.time}
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -135,8 +164,8 @@ export default function Announcements() {
       {warningAnnouncements.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <MaterialCommunityIcons name="alert" size={20} color="#F39C12" />
-            <Text style={[styles.sectionTitle, { color: '#F39C12' }]}>Uyarılar</Text>
+            <MaterialCommunityIcons name="alert" size={20} color={theme.warning} />
+            <Text style={[styles.sectionTitle, { color: theme.warning }]}>Uyarılar</Text>
           </View>
           <ScrollView 
             horizontal 
@@ -151,26 +180,55 @@ export default function Announcements() {
                 key={announcement.id}
                 style={[
                   styles.card,
+                  { backgroundColor: colorScheme === 'dark' ? 'transparent' : theme.card },
                   index === 0 ? { marginLeft: width * 0.04 } : {}
                 ]}
                 onPress={() => setIsModalVisible(true)}
               >
-                <View style={[styles.iconContainer, { backgroundColor: `${getColor(announcement.type)}15` }]}>
-                  <MaterialCommunityIcons 
-                    name={getIcon(announcement.type)} 
-                    size={24} 
-                    color={getColor(announcement.type)} 
-                  />
-                </View>
-                <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
-                  {announcement.title}
-                </Text>
-                <Text style={[styles.cardDescription, { color: theme.textDim }]} numberOfLines={2}>
-                  {announcement.description}
-                </Text>
-                <Text style={[styles.cardTime, { color: theme.subtitle }]}>
-                  {announcement.time}
-                </Text>
+                {colorScheme === 'dark' ? (
+                  <LinearGradient
+                    colors={theme.cardGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.cardInner}
+                  >
+                    <View style={[styles.iconContainer, { backgroundColor: `${getColor(announcement.type)}15` }]}>
+                      <MaterialCommunityIcons 
+                        name={getIcon(announcement.type)} 
+                        size={24} 
+                        color={getColor(announcement.type)} 
+                      />
+                    </View>
+                    <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+                      {announcement.title}
+                    </Text>
+                    <Text style={[styles.cardDescription, { color: theme.textDim }]} numberOfLines={2}>
+                      {announcement.description}
+                    </Text>
+                    <Text style={[styles.cardTime, { color: theme.subtitle }]}>
+                      {announcement.time}
+                    </Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={[styles.cardInner, { backgroundColor: theme.card }]}>
+                    <View style={[styles.iconContainer, { backgroundColor: `${getColor(announcement.type)}15` }]}>
+                      <MaterialCommunityIcons 
+                        name={getIcon(announcement.type)} 
+                        size={24} 
+                        color={getColor(announcement.type)} 
+                      />
+                    </View>
+                    <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+                      {announcement.title}
+                    </Text>
+                    <Text style={[styles.cardDescription, { color: theme.textDim }]} numberOfLines={2}>
+                      {announcement.description}
+                    </Text>
+                    <Text style={[styles.cardTime, { color: theme.subtitle }]}>
+                      {announcement.time}
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -184,7 +242,7 @@ export default function Announcements() {
         onRequestClose={() => setIsModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: '#FFF' }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 Tüm Duyurular
@@ -197,21 +255,21 @@ export default function Announcements() {
               {emergencyAnnouncements.length > 0 && (
                 <View style={styles.modalSection}>
                   <View style={styles.modalSectionHeader}>
-                    <MaterialCommunityIcons name="alert-circle" size={20} color="#E74C3C" />
-                    <Text style={[styles.modalSectionTitle, { color: '#E74C3C' }]}>
+                    <MaterialCommunityIcons name="alert-circle" size={20} color={theme.error} />
+                    <Text style={[styles.modalSectionTitle, { color: theme.error }]}>
                       Acil Duyurular
                     </Text>
                   </View>
                   {emergencyAnnouncements.map((announcement) => (
-                    <View key={announcement.id} style={styles.modalItem}>
+                    <View key={announcement.id} style={[styles.modalItem, { borderBottomColor: theme.border }]}>
                       <View style={styles.modalItemContent}>
                         <Text style={[styles.modalItemTitle, { color: theme.text }]}>
                           {announcement.title}
                         </Text>
-                        <Text style={[styles.modalItemDescription, { color: '#666666' }]}>
+                        <Text style={[styles.modalItemDescription, { color: theme.textDim }] }>
                           {announcement.description}
                         </Text>
-                        <Text style={[styles.modalItemTime, { color: '#999999' }]}>
+                        <Text style={[styles.modalItemTime, { color: theme.subtitle }]}>
                           {announcement.time}
                         </Text>
                       </View>
@@ -223,21 +281,21 @@ export default function Announcements() {
               {warningAnnouncements.length > 0 && (
                 <View style={styles.modalSection}>
                   <View style={styles.modalSectionHeader}>
-                    <MaterialCommunityIcons name="alert" size={20} color="#F39C12" />
-                    <Text style={[styles.modalSectionTitle, { color: '#F39C12' }]}>
+                    <MaterialCommunityIcons name="alert" size={20} color={theme.warning} />
+                    <Text style={[styles.modalSectionTitle, { color: theme.warning }]}>
                       Uyarılar
                     </Text>
                   </View>
                   {warningAnnouncements.map((announcement) => (
-                    <View key={announcement.id} style={styles.modalItem}>
+                    <View key={announcement.id} style={[styles.modalItem, { borderBottomColor: theme.border }]}>
                       <View style={styles.modalItemContent}>
                         <Text style={[styles.modalItemTitle, { color: theme.text }]}>
                           {announcement.title}
                         </Text>
-                        <Text style={[styles.modalItemDescription, { color: '#666666' }]}>
+                        <Text style={[styles.modalItemDescription, { color: theme.textDim }] }>
                           {announcement.description}
                         </Text>
-                        <Text style={[styles.modalItemTime, { color: '#999999' }]}>
+                        <Text style={[styles.modalItemTime, { color: theme.subtitle }]}>
                           {announcement.time}
                         </Text>
                       </View>
@@ -308,10 +366,10 @@ const styles = StyleSheet.create({
   },
   card: {
     width: width * 0.75,
-    padding: 16,
+    padding: 0,
     borderRadius: 16,
     marginRight: 12,
-    backgroundColor: '#FFF',
+    backgroundColor: 'transparent',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -323,6 +381,11 @@ const styles = StyleSheet.create({
         elevation: 3,
       },
     }),
+  },
+  cardInner: {
+    padding: 16,
+    borderRadius: 16,
+    width: '100%',
   },
   iconContainer: {
     width: 48,

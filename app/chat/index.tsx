@@ -1,26 +1,27 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  FlatList,
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  StatusBar,
-  Platform,
-  Alert,
-  RefreshControl
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../context/AuthContext';
-import { ChatItem } from '../../components/ChatItem';
-import { Chat, deleteChat, getChats } from '../../services/ChatService';
-import { subscribeToChats } from '../../services/ChatService';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+    Alert,
+    FlatList,
+    Platform,
+    RefreshControl,
+    StatusBar,
+    StyleSheet,
+    Text,
+    useColorScheme,
+    View
+} from 'react-native';
+import { ChatItem } from '../../components/ChatItem';
+import Colors from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
+import { Chat, deleteChat, getChats, subscribeToChats } from '../../services/ChatService';
 
 export default function ChatListScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
   const [chats, setChats] = useState<Chat[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -95,13 +96,13 @@ export default function ChatListScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <View style={[styles.container, { backgroundColor: theme.background }] }>
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <LinearGradient
-        colors={['#2E7DFF', '#60A5FA']}
+        colors={theme.headerBackground}
         style={styles.header}
       >
-        <Text style={styles.headerTitle}>Mesajlar</Text>
+        <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>Mesajlar</Text>
       </LinearGradient>
 
       <FlatList
@@ -119,13 +120,13 @@ export default function ChatListScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={refreshChats}
-            colors={['#2E7DFF']}
-            tintColor="#2E7DFF"
+            colors={[theme.primary]}
+            tintColor={theme.primary}
           />
         }
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
+            <Text style={[styles.emptyText, { color: theme.textDim }]}>
               Henüz hiç mesajınız yok.
             </Text>
           </View>

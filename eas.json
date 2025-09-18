@@ -5,6 +5,7 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "android": {
         "buildType": "apk"
       },
@@ -14,10 +15,20 @@
     },
     "development": {
       "distribution": "internal",
-      "developmentClient": true
+      "developmentClient": true,
+      "channel": "development"
+    },
+    "production": {
+      "distribution": "store", 
+      "channel": "production",
+      "ios": {
+        "resourceClass": "m-medium"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {}
+    }
   }
 } 

@@ -43,7 +43,7 @@ export default function FilterModal({ visible, onClose, filterType, setFilterTyp
                 ].map(type => (
                   <TouchableOpacity
                     key={type.id}
-                    style={[styles.filterTypeButton, filterType === (type.id as any) && { backgroundColor: theme.primary + '20' }]}
+                    style={[styles.filterTypeButton, { borderColor: theme.border }, filterType === (type.id as any) && { backgroundColor: theme.primary + '20' }]}
                     onPress={() => setFilterType(type.id as any)}
                   >
                     <MaterialCommunityIcons name={type.icon as any} size={20} color={filterType === (type.id as any) ? theme.primary : theme.textDim} />
@@ -59,7 +59,7 @@ export default function FilterModal({ visible, onClose, filterType, setFilterTyp
               <Text style={[styles.filterSectionTitle, { color: theme.text }]}>Kategori</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
                 <TouchableOpacity
-                  style={[styles.categoryButton, !filterCategory && { backgroundColor: theme.primary + '20' }]}
+                  style={[styles.categoryButton, { borderColor: theme.border }, !filterCategory && { backgroundColor: theme.primary + '20' }]}
                   onPress={() => setFilterCategory(null)}
                 >
                   <Text style={[styles.categoryText, { color: !filterCategory ? theme.primary : theme.textDim }]}>Tümü</Text>
@@ -69,7 +69,7 @@ export default function FilterModal({ visible, onClose, filterType, setFilterTyp
                   .map(category => (
                     <TouchableOpacity
                       key={category.id}
-                      style={[styles.categoryButton, filterCategory === category.id && { backgroundColor: category.color + '20' }]}
+                      style={[styles.categoryButton, { borderColor: theme.border }, filterCategory === category.id && { backgroundColor: category.color + '20' }]}
                       onPress={() => setFilterCategory(category.id)}
                     >
                       <MaterialCommunityIcons name={category.icon as any} size={20} color={filterCategory === category.id ? category.color : theme.textDim} />
@@ -91,7 +91,7 @@ export default function FilterModal({ visible, onClose, filterType, setFilterTyp
                 ].map(range => (
                   <TouchableOpacity
                     key={range.days}
-                    style={[styles.dateRangeButton, filterDateRange.start.getTime() === subDays(new Date(), range.days).getTime() && { backgroundColor: theme.primary + '20' }]}
+                    style={[styles.dateRangeButton, { borderColor: theme.border }, filterDateRange.start.getTime() === subDays(new Date(), range.days).getTime() && { backgroundColor: theme.primary + '20' }]}
                     onPress={() => setFilterDateRange({ start: subDays(new Date(), range.days), end: new Date() })}
                   >
                     <Text style={[styles.dateRangeButtonText, { color: filterDateRange.start.getTime() === subDays(new Date(), range.days).getTime() ? theme.primary : theme.textDim }]}>

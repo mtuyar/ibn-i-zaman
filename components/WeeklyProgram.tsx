@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Platform, Modal, Pressable, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Colors from '../constants/Colors';
-import { useColorScheme } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { getLimitedPrograms, Program, subscribeToProgramUpdates, getAllPrograms } from '../services/ProgramService';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import Colors from '../constants/Colors';
+import { getAllPrograms, getLimitedPrograms, Program, subscribeToProgramUpdates } from '../services/ProgramService';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.75;
@@ -301,7 +300,10 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
                     </View>
                   </View>
                   <TouchableOpacity 
-                    style={styles.modalCloseButton}
+                    style={[
+                      styles.modalCloseButton,
+                      { backgroundColor: `${theme.text}15` }
+                    ]}
                     onPress={closeModal}
                   >
                     <MaterialCommunityIcons name="close" size={22} color={theme.textDim} />

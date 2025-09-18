@@ -1,16 +1,15 @@
+import { useFocusEffect } from '@react-navigation/native';
 import React from 'react';
-import { View, StyleSheet, ScrollView, StatusBar, Platform } from 'react-native';
-import WeeklyProgram from '../../components/WeeklyProgram';
+import { Platform, ScrollView, StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
 import Announcements from '../../components/Announcements';
 import Header from '../../components/Header';
+import WeeklyProgram from '../../components/WeeklyProgram';
 import Colors from '../../constants/Colors';
-import { useColorScheme } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const navigation = useNavigation();
+  
 
   // Sayfa odaklandığında StatusBar'ı güncelleyelim
   useFocusEffect(
@@ -18,7 +17,7 @@ export default function HomeScreen() {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor('transparent');
         StatusBar.setTranslucent(true);
-        StatusBar.setBarStyle('light-content');
+        StatusBar.setBarStyle(colorScheme === 'dark' ? 'light-content' : 'dark-content');
       }
       return () => {};
     }, [])
@@ -29,10 +28,6 @@ export default function HomeScreen() {
     console.log('Notification pressed');
   };
 
-  const handleAnalyticsPress = () => {
-    navigation.navigate('AnalyticsScreen');
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Header
@@ -40,7 +35,6 @@ export default function HomeScreen() {
         showNotification={true}
         onNotificationPress={handleNotificationPress}
         isProfileScreen={false}
-        onAnalyticsPress={handleAnalyticsPress}
       />
       <ScrollView
         style={styles.scrollView}

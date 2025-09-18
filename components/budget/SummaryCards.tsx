@@ -129,7 +129,7 @@ export default function SummaryCards({ stats, transactions, selectedPeriod, them
           </View>
         </View>
 
-        <View style={[styles.periodSelector, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
+        <View style={[styles.periodSelector, { backgroundColor: `${theme.text}10` }]}>
           {(['week', 'month', 'year'] as Period[]).map((p) => (
             <TouchableOpacity
               key={p}
@@ -146,20 +146,20 @@ export default function SummaryCards({ stats, transactions, selectedPeriod, them
         <View style={styles.summaryGrid}>
           <View style={styles.summaryItem}>
             <View style={styles.summaryItemHeader}>
-              <MaterialCommunityIcons name="cash-plus" size={16} color="#4CAF50" />
+              <MaterialCommunityIcons name="cash-plus" size={16} color={theme.success} />
               <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gelir</Text>
             </View>
-            <Text style={[styles.summaryItemAmount, { color: '#4CAF50' }]}> 
+            <Text style={[styles.summaryItemAmount, { color: theme.success }]}> 
               {displayCurrency(summaryStats.totalIncome)}
             </Text>
           </View>
 
           <View style={styles.summaryItem}>
             <View style={styles.summaryItemHeader}>
-              <MaterialCommunityIcons name="cash-minus" size={16} color="#FF6B6B" />
+              <MaterialCommunityIcons name="cash-minus" size={16} color={theme.error} />
               <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Gider</Text>
             </View>
-            <Text style={[styles.summaryItemAmount, { color: '#FF6B6B' }]}> 
+            <Text style={[styles.summaryItemAmount, { color: theme.error }]}> 
               {displayCurrency(summaryStats.totalExpense)}
             </Text>
           </View>
@@ -169,21 +169,21 @@ export default function SummaryCards({ stats, transactions, selectedPeriod, them
               <MaterialCommunityIcons 
                 name={summaryStats.balance >= 0 ? 'wallet' : 'alert-circle'} 
                 size={16} 
-                color={summaryStats.balance >= 0 ? '#2196F3' : '#FF6B6B'} 
+                color={summaryStats.balance >= 0 ? theme.primary : theme.error} 
               />
               <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>Bakiye</Text>
             </View>
-            <Text style={[styles.summaryItemAmount, { color: summaryStats.balance >= 0 ? '#2196F3' : '#FF6B6B' }]}> 
+            <Text style={[styles.summaryItemAmount, { color: summaryStats.balance >= 0 ? theme.primary : theme.error }]}> 
               {displayCurrency(Math.abs(summaryStats.balance))}
             </Text>
           </View>
 
           <View style={styles.summaryItem}>
             <View style={styles.summaryItemHeader}>
-              <MaterialCommunityIcons name="swap-horizontal" size={16} color="#9C27B0" />
+              <MaterialCommunityIcons name="swap-horizontal" size={16} color={theme.accent} />
               <Text style={[styles.summaryItemLabel, { color: theme.textDim }]}>İşlem</Text>
             </View>
-            <Text style={[styles.summaryItemAmount, { color: '#9C27B0' }]}> 
+            <Text style={[styles.summaryItemAmount, { color: theme.accent }]}> 
               {displayCount(summaryCount)}
             </Text>
           </View>

@@ -1,46 +1,48 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-  AppState,
-  Keyboard,
-  Dimensions,
-  StatusBar,
-  ActivityIndicator,
-  Image,
-  Modal
-} from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { chatDetailStyles } from '../styles/chatDetail.styles';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    AppState,
+    Dimensions,
+    FlatList,
+    Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    StatusBar,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useColorScheme,
+    View
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Colors from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  getMessages, 
-  sendMessage, 
-  subscribeToMessages,
-  markMessageAsRead,
-  Chat,
-  Message,
-  getChat,
-  deleteChat
+import {
+    Chat,
+    deleteChat,
+    getChat,
+    markMessageAsRead,
+    Message,
+    sendMessage,
+    subscribeToMessages
 } from '../../services/ChatService';
 import { getUser } from '../../services/UserService';
-import { 
-  subscribeToUserStatus, 
-  UserStatus
+import {
+    subscribeToUserStatus,
+    UserStatus
 } from '../../services/UserStatusService';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { chatDetailStyles } from '../styles/chatDetail.styles';
 
 const { width } = Dimensions.get('window');
 
 export default function ChatDetailScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -223,7 +225,7 @@ export default function ChatDetailScreen() {
       }}>
         <View style={{
           maxWidth: '75%',
-          backgroundColor: isSent ? '#2E7DFF' : '#fff',
+          backgroundColor: isSent ? theme.primary : theme.card,
           borderRadius: 18,
           borderBottomRightRadius: isSent ? 4 : 18,
           borderBottomLeftRadius: isSent ? 18 : 4,
@@ -237,14 +239,14 @@ export default function ChatDetailScreen() {
           shadowRadius: 2,
           elevation: 1,
         }}>
-          <Text style={{ color: isSent ? '#fff' : '#222', fontSize: 16 }}>{item.content}</Text>
-          <Text style={{ color: isSent ? '#E0EFFF' : '#A0A0A0', fontSize: 11, marginTop: 4, textAlign: 'right' }}>
+          <Text style={{ color: isSent ? '#FFFFFF' : theme.text, fontSize: 16 }}>{item.content}</Text>
+          <Text style={{ color: isSent ? '#E0EFFF' : theme.placeholder, fontSize: 11, marginTop: 4, textAlign: 'right' }}>
             {formatMessageTime(item.createdAt)}
           </Text>
         </View>
       </View>
     );
-  }, [user?.uid, formatMessageTime]);
+  }, [user?.uid, formatMessageTime, theme]);
 
   // Mesaj listesi için optimizasyon
   const keyExtractor = useCallback((item: Message) => item.id, []);
@@ -260,7 +262,12 @@ export default function ChatDetailScreen() {
 
   // Modern Chat UI: Header, Mesaj Listesi, Input Bar
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9F9F9' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
       {/* Header */}
       <View style={{
         flexDirection: 'row',
@@ -268,36 +275,36 @@ export default function ChatDetailScreen() {
         paddingHorizontal: 16,
         paddingTop: Platform.OS === 'ios' ? 8 : StatusBar.currentHeight,
         paddingBottom: 12,
-        backgroundColor: '#fff',
+        backgroundColor: theme.surface,
         borderBottomWidth: 1,
-        borderBottomColor: '#F2F2F2',
+        borderBottomColor: theme.border,
         elevation: 2,
         zIndex: 10,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
-          <Ionicons name="arrow-back" size={24} color="#222" />
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
         {otherUser?.photoURL ? (
           <Image source={{ uri: otherUser.photoURL }} style={{ width: 36, height: 36, borderRadius: 18, marginRight: 10 }} />
         ) : (
-          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#E5E5E5', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
-            <Text style={{ color: '#333', fontWeight: 'bold', fontSize: 16 }}>{otherUser?.displayName?.charAt(0) || '?'}</Text>
+          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.border, justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
+            <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: 16 }}>{otherUser?.displayName?.charAt(0) || '?'}</Text>
           </View>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={{ fontWeight: 'bold', fontSize: 18, color: '#111' }}>{otherUser?.displayName || 'Kullanıcı'}</Text>
-          <Text style={{ fontSize: 13, color: userStatus?.status === 'online' ? '#34C759' : '#A0A0A0' }}>{userStatus?.status === 'online' ? 'Çevrimiçi' : 'Çevrimdışı'}</Text>
+          <Text style={{ fontWeight: 'bold', fontSize: 18, color: theme.text }}>{otherUser?.displayName || 'Kullanıcı'}</Text>
+          <Text style={{ fontSize: 13, color: userStatus?.status === 'online' ? '#34C759' : theme.placeholder }}>{userStatus?.status === 'online' ? 'Çevrimiçi' : 'Çevrimdışı'}</Text>
         </View>
         <TouchableOpacity style={{ marginLeft: 8 }} onPress={() => setMenuVisible(true)}>
-          <Ionicons name="ellipsis-horizontal" size={24} color="#222" />
+          <Ionicons name="ellipsis-horizontal" size={24} color={theme.text} />
         </TouchableOpacity>
       </View>
 
       {/* Loading State */}
       {isLoading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9F9F9' }}>
-          <ActivityIndicator size="large" color="#2E7DFF" />
-          <Text style={{ marginTop: 16, color: '#222', fontSize: 16, fontWeight: '500' }}>Sohbet yükleniyor...</Text>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={{ marginTop: 16, color: theme.text, fontSize: 16, fontWeight: '500' }}>Sohbet yükleniyor...</Text>
         </View>
       ) : (
         // Mesaj Listesi */}
@@ -317,35 +324,35 @@ export default function ChatDetailScreen() {
       <View style={{
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fff',
+        backgroundColor: theme.surface,
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderTopWidth: 1,
-        borderTopColor: '#F2F2F2',
+        borderTopColor: theme.border,
       }}>
         <TouchableOpacity style={{ marginRight: 8 }} onPress={() => setEmojiPickerVisible(true)}>
-          <Ionicons name="happy-outline" size={26} color="#A0A0A0" />
+          <Ionicons name="happy-outline" size={26} color={theme.placeholder} />
         </TouchableOpacity>
         <TextInput
           style={{
             flex: 1,
-            backgroundColor: '#F5F5F5',
+            backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F5F5F5',
             borderRadius: 20,
             paddingHorizontal: 16,
             paddingVertical: 10,
             fontSize: 16,
-            color: '#222',
+            color: theme.text,
             marginRight: 8,
           }}
           placeholder="Mesaj yaz..."
-          placeholderTextColor="#A0A0A0"
+          placeholderTextColor={theme.placeholder}
           value={newMessage}
           onChangeText={setNewMessage}
           multiline
         />
         <TouchableOpacity
           style={{
-            backgroundColor: newMessage.trim() ? '#2E7DFF' : '#E5E5E5',
+            backgroundColor: newMessage.trim() ? theme.primary : theme.border,
             borderRadius: 20,
             width: 40,
             height: 40,
@@ -355,7 +362,7 @@ export default function ChatDetailScreen() {
           onPress={handleSend}
           disabled={!newMessage.trim()}
         >
-          <Ionicons name="send" size={22} color={newMessage.trim() ? '#fff' : '#A0A0A0'} />
+          <Ionicons name="send" size={22} color={newMessage.trim() ? '#fff' : theme.placeholder} />
         </TouchableOpacity>
       </View>
 
@@ -367,12 +374,12 @@ export default function ChatDetailScreen() {
         onRequestClose={() => setEmojiPickerVisible(false)}
       >
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 8, minHeight: 320 }}>
+          <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 8, minHeight: 320 }}>
             {/* Burada gerçek emoji picker bileşeni kullanılacak. Örnek: */}
             {/* <EmojiPicker onEmojiSelected={emoji => { setNewMessage(newMessage + emoji.native); setEmojiPickerVisible(false); }} /> */}
-            <Text style={{ textAlign: 'center', color: '#888', marginVertical: 16 }}>Buraya emoji picker entegre edilecek</Text>
+            <Text style={{ textAlign: 'center', color: theme.textDim, marginVertical: 16 }}>Buraya emoji picker entegre edilecek</Text>
             <TouchableOpacity onPress={() => setEmojiPickerVisible(false)} style={{ alignSelf: 'center', marginTop: 12 }}>
-              <Text style={{ color: '#2E7DFF', fontWeight: 'bold', fontSize: 16 }}>Kapat</Text>
+              <Text style={{ color: theme.primary, fontWeight: 'bold', fontSize: 16 }}>Kapat</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -386,7 +393,7 @@ export default function ChatDetailScreen() {
         onRequestClose={() => setMenuVisible(false)}
       >
         <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.2)' }} activeOpacity={1} onPress={() => setMenuVisible(false)}>
-          <View style={{ position: 'absolute', right: 16, top: 60, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 8, minWidth: 160, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 8 }}>
+          <View style={{ position: 'absolute', right: 16, top: 60, backgroundColor: theme.surface, borderRadius: 12, paddingVertical: 8, minWidth: 160, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 8 }}>
             <TouchableOpacity
               style={{ paddingVertical: 12, paddingHorizontal: 20 }}
               onPress={async () => {
@@ -416,6 +423,7 @@ export default function ChatDetailScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

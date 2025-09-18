@@ -1,26 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  TextInput,
-  Platform,
-  StatusBar,
-  RefreshControl,
-  Image,
-} from 'react-native';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../context/AuthContext';
-import { ChatItem } from '../../components/ChatItem';
-import { Chat, getChats, deleteChat } from '../../services/ChatService';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+    FlatList,
+    Image,
+    Platform,
+    RefreshControl,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useColorScheme,
+    View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChatItem } from '../../components/ChatItem';
+import Colors from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
+import { Chat, deleteChat, getChats } from '../../services/ChatService';
 
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -65,28 +69,28 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
       {/* Header */}
-      <View style={styles.headerContainer}>
+      <View style={[styles.headerContainer, { backgroundColor: theme.surface, borderBottomColor: theme.border, paddingTop: Platform.OS === 'ios' ? 8 : StatusBar.currentHeight }]}>
         <View style={styles.headerRow}>
           {user?.photoURL ? (
             <Image source={{ uri: user.photoURL }} style={styles.avatar} />
           ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>{user?.displayName?.charAt(0) || '?'}</Text>
+            <View style={[styles.avatarPlaceholder, { backgroundColor: theme.border }]}>
+              <Text style={[styles.avatarText, { color: theme.text }]}>{user?.displayName?.charAt(0) || '?'}</Text>
             </View>
           )}
-          <Text style={styles.headerTitle}>Mesajlar</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Mesajlar</Text>
           <TouchableOpacity style={styles.addButton} onPress={handleNewMessage}>
-            <Ionicons name="add" size={28} color="#2E7DFF" />
+            <Ionicons name="add" size={28} color={theme.primary} />
           </TouchableOpacity>
         </View>
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={20} color="#A0A0A0" style={{ marginRight: 8 }} />
+        <View style={[styles.searchBox, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F5F5F5' }]}>
+          <Ionicons name="search" size={20} color={theme.placeholder} style={{ marginRight: 8 }} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: theme.text }]}
             placeholder="Sohbetlerde ara..."
-            placeholderTextColor="#A0A0A0"
+            placeholderTextColor={theme.placeholder}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
@@ -104,26 +108,26 @@ export default function ChatScreen() {
             onDelete={handleDeleteChat}
           />
         )}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent]}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={loadChats}
-            colors={['#2E7DFF']}
-            tintColor="#2E7DFF"
+            colors={[theme.primary]}
+            tintColor={theme.primary}
           />
         }
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubbles-outline" size={64} color="#CCCCCC" />
-            <Text style={styles.emptyText}>
+            <Ionicons name="chatbubbles-outline" size={64} color={theme.placeholder} />
+            <Text style={[styles.emptyText, { color: theme.textDim }]}>
               {searchQuery
                 ? 'Arama sonucu bulunamadı'
                 : 'Henüz hiç mesajınız yok'}
             </Text>
             {!searchQuery && (
               <TouchableOpacity
-                style={styles.startChatButton}
+                style={[styles.startChatButton, { backgroundColor: theme.primary }]}
                 onPress={handleNewMessage}
               >
                 <Text style={styles.startChatButtonText}>Yeni Mesaj Başlat</Text>
@@ -138,12 +142,9 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   headerContainer: {
-    backgroundColor: '#fff',
-    paddingTop: Platform.OS === 'ios' ? 8 : StatusBar.currentHeight,
     paddingBottom: 8,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F2',
   },
   headerRow: {
     flexDirection: 'row',
@@ -167,7 +168,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatarText: {
-    color: '#333',
     fontSize: 18,
     fontWeight: 'bold',
   },
@@ -175,17 +175,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#111',
   },
   addButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F5F8FF',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5EFFF',
   },
   searchBox: {
     flexDirection: 'row',
@@ -212,7 +209,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: '#666666',
     marginTop: 16,
     textAlign: 'center',
   },

@@ -53,6 +53,7 @@ export default function Header({
   onRightButtonPress,
 }: HeaderProps) {
   const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
   const [isModalVisible, setIsModalVisible] = useState(false);
   
@@ -166,7 +167,7 @@ export default function Header({
               style={styles.notificationButton}
               onPress={() => setIsModalVisible(true)}>
               <Ionicons name="notifications-outline" size={22} color="#FFF" />
-              <View style={styles.notificationBadge}>
+              <View style={[styles.notificationBadge, { backgroundColor: theme.error, borderColor: theme.surface }]}>
                 <Text style={styles.badgeText}>{notifications.length}</Text>
               </View>
             </TouchableOpacity>
@@ -187,16 +188,16 @@ export default function Header({
           activeOpacity={1}
           onPress={() => setIsModalVisible(false)}
         >
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }] }>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Bildirimler</Text>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Bildirimler</Text>
               <TouchableOpacity onPress={() => setIsModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#2C3E50" />
+                <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll}>
               {notifications.map((notification) => (
-                <View key={notification.id} style={styles.notificationItem}>
+                <View key={notification.id} style={[styles.notificationItem, { borderBottomColor: theme.border }]}>
                   <View style={[styles.notificationIcon, { backgroundColor: `${getColor(notification.type)}15` }]}>
                     <Ionicons 
                       name={getIcon(notification.type)} 
@@ -205,13 +206,13 @@ export default function Header({
                     />
                   </View>
                   <View style={styles.notificationContent}>
-                    <Text style={styles.notificationTitle}>
+                    <Text style={[styles.notificationTitle, { color: theme.text }]}>
                       {notification.title}
                     </Text>
-                    <Text style={styles.notificationDescription}>
+                    <Text style={[styles.notificationDescription, { color: theme.subtitle }]}>
                       {notification.description}
                     </Text>
-                    <Text style={styles.notificationTime}>
+                    <Text style={[styles.notificationTime, { color: theme.placeholder }]}>
                       {notification.time}
                     </Text>
                   </View>

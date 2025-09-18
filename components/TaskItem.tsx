@@ -1,21 +1,19 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
+    ActivityIndicator,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    useColorScheme,
+    View,
 } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useColorScheme } from 'react-native';
 import Colors from '../constants/Colors';
-import { TaskDefinition, TaskStatus } from '../types/firestore';
-import { format } from 'date-fns';
-import { tr } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
-import * as Haptics from 'expo-haptics';
 import { useTaskStatus } from '../hooks/useTaskStatus';
-import { LinearGradient } from 'expo-linear-gradient';
+import { TaskDefinition, TaskStatus } from '../types/firestore';
 
 interface TaskItemProps {
   task: TaskDefinition;
@@ -48,9 +46,9 @@ export function TaskItem({ task, userId, date, onError, isEditable = true }: Tas
   };
 
   const getStatusColor = () => {
-    if (isCompleted) return '#4CAF50';
-    if (!isEditable) return '#9E9E9E';
-    return '#1976D2';
+    if (isCompleted) return theme.success;
+    if (!isEditable) return theme.textDim;
+    return theme.primary;
   };
 
   const getStatusIcon = () => {
@@ -74,12 +72,8 @@ export function TaskItem({ task, userId, date, onError, isEditable = true }: Tas
     >
       <LinearGradient
         colors={[
-          isCompleted 
-            ? 'rgba(76, 175, 80, 0.03)' 
-            : 'rgba(240, 247, 255, 0.8)',
-          isCompleted 
-            ? 'rgba(76, 175, 80, 0.01)' 
-            : 'rgba(240, 247, 255, 0.6)',
+          getStatusColor() + '10',
+          getStatusColor() + '05',
         ]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -87,7 +81,7 @@ export function TaskItem({ task, userId, date, onError, isEditable = true }: Tas
       >
         <View style={[
           styles.content,
-          { borderLeftColor: getStatusColor(), borderLeftWidth: 3 }
+          { borderLeftColor: getStatusColor(), borderLeftWidth: 3, backgroundColor: theme.surface }
         ]}>
           <View style={styles.header}>
             <View style={styles.titleContainer}>
@@ -95,11 +89,11 @@ export function TaskItem({ task, userId, date, onError, isEditable = true }: Tas
                 {task.title}
               </Text>
               {task.isImportant && (
-                <View style={styles.importantBadge}>
+                <View style={[styles.importantBadge, { backgroundColor: theme.warning + '10' }]}>
                   <MaterialCommunityIcons
                     name="star"
                     size={12}
-                    color="#FFC107"
+                    color={theme.warning}
                   />
                 </View>
               )}
@@ -150,7 +144,7 @@ export function TaskItem({ task, userId, date, onError, isEditable = true }: Tas
             
             <View style={[
               styles.statusContainer,
-              { backgroundColor: isCompleted ? 'rgba(76, 175, 80, 0.1)' : 'rgba(25, 118, 210, 0.1)' }
+              { backgroundColor: getStatusColor() + '15' }
             ]}>
               <Text style={[styles.statusText, { color: getStatusColor() }]}>
                 {getStatusText()}
@@ -172,14 +166,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
   },
   gradient: {
     borderRadius: 16,
   },
   content: {
     padding: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   header: {
     flexDirection: 'row',
@@ -199,7 +191,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   importantBadge: {
-    backgroundColor: 'rgba(255, 193, 7, 0.1)',
     padding: 4,
     borderRadius: 8,
     marginLeft: 8,
@@ -222,7 +213,6 @@ const styles = StyleSheet.create({
   categoryContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,

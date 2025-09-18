@@ -1,17 +1,18 @@
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  Platform,
-  Animated
+    Animated,
+    Image,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    useColorScheme,
+    View
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Chat } from '../services/ChatService';
-import { useAuth } from '../context/AuthContext';
 import { Swipeable } from 'react-native-gesture-handler';
+import Colors from '../constants/Colors';
+import { useAuth } from '../context/AuthContext';
+import { Chat } from '../services/ChatService';
 
 interface ChatItemProps {
   chat: Chat;
@@ -20,6 +21,8 @@ interface ChatItemProps {
 }
 
 export const ChatItem: React.FC<ChatItemProps> = ({ chat, onSelect, onDelete }) => {
+  const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
   const { user } = useAuth();
   const lastMessage = chat.lastMessage;
   // const isOnline = chat.type === 'private' && chat.participants?.some(p => p.userId !== user?.uid && p.status === 'online');
@@ -54,7 +57,7 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onSelect, onDelete }) 
       rightThreshold={40}
     >
       <TouchableOpacity
-        style={styles.container}
+        style={[styles.container, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}
         onPress={() => onSelect(chat.id)}
         activeOpacity={0.7}
       >
@@ -62,20 +65,20 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onSelect, onDelete }) 
           {chat.photoURL ? (
             <Image source={{ uri: chat.photoURL }} style={styles.avatar} />
           ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>{chat.name?.charAt(0).toUpperCase() || '?'}</Text>
+            <View style={[styles.avatarPlaceholder, { backgroundColor: theme.border }]}>
+              <Text style={[styles.avatarText, { color: theme.text }]}>{chat.name?.charAt(0).toUpperCase() || '?'}</Text>
             </View>
           )}
           {/* {isOnline && <View style={styles.onlineDot} />} */}
         </View>
         <View style={styles.contentContainer}>
           <View style={styles.topRow}>
-            <Text style={styles.name}>{chat.name || 'İsimsiz Sohbet'}</Text>
+            <Text style={[styles.name, { color: theme.text }]}>{chat.name || 'İsimsiz Sohbet'}</Text>
             {lastMessage?.timestamp && (
-              <Text style={styles.time}>{formatDate(lastMessage.timestamp)}</Text>
+              <Text style={[styles.time, { color: theme.textDim }]}>{formatDate(lastMessage.timestamp)}</Text>
             )}
           </View>
-          <Text style={styles.subtitle} numberOfLines={1}>
+          <Text style={[styles.subtitle, { color: theme.textDim }]} numberOfLines={1}>
             {lastMessage?.content ? lastMessage.content : 'Henüz mesaj yok'}
           </Text>
         </View>

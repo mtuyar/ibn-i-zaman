@@ -1,15 +1,12 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, SafeAreaView, Platform, StatusBar, ScrollView } from 'react-native';
-import { TaskList } from '../../components/TaskList';
-import { format } from 'date-fns';
-import { tr } from 'date-fns/locale';
-import Colors from '../../constants/Colors';
-import { useColorScheme } from 'react-native';
-import { TaskCategory } from '../../types/firestore';
-import Header from '../../components/Header';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { format } from 'date-fns';
+import React, { useState } from 'react';
+import { Platform, StatusBar, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import Header from '../../components/Header';
+import { TaskList } from '../../components/TaskList';
+import Colors from '../../constants/Colors';
+import { TaskCategory } from '../../types/firestore';
 
 const categories: TaskCategory[] = ['daily', 'weekly', 'monthly'];
 const categoryLabels: Record<TaskCategory, string> = {
@@ -32,7 +29,7 @@ export default function TasksScreen() {
       if (Platform.OS === 'android') {
         StatusBar.setBackgroundColor('transparent');
         StatusBar.setTranslucent(true);
-        StatusBar.setBarStyle('light-content');
+        StatusBar.setBarStyle(colorScheme === 'dark' ? 'light-content' : 'dark-content');
       }
       return () => {};
     }, [])
@@ -95,10 +92,8 @@ export default function TasksScreen() {
             style={styles.analyticsButton}
             onPress={() => navigation.navigate('analytics' as never)}
           >
-            <Ionicons name="analytics" size={20} color="#FFFFFF" />
-            <Text style={styles.analyticsButtonText}>
-              Analiz
-            </Text>
+            <Ionicons name="stats-chart" size={20} color="#FFFFFF" />
+            <Text style={[styles.analyticsButtonText, { color: '#FFFFFF' }]}>Analiz</Text>
           </TouchableOpacity>
         }
         onLeftButtonPress={() => {}}
@@ -117,8 +112,8 @@ export default function TasksScreen() {
           >
             <Text
               style={[
-                styles.categoryText,
-                { color: selectedCategory === category ? '#fff' : theme.text }
+              styles.categoryText,
+              { color: selectedCategory === category ? '#fff' : theme.text }
               ]}
             >
               {categoryLabels[category]}

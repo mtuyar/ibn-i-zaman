@@ -351,56 +351,56 @@ export default function AnalyticsScreen() {
         onRightButtonPress={() => setTab('siralama')}
       />
       {/* Yeni Tab Bar */}
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { backgroundColor: theme.surface }] }>
         <TouchableOpacity 
-          style={[styles.tab, tab === 'genel' && styles.tabActive]} 
+          style={[styles.tab, { borderColor: theme.border }, tab === 'genel' && [styles.tabActive, { backgroundColor: theme.card }]]} 
           onPress={() => setTab('genel')}
         >
-          <Ionicons name="stats-chart" size={20} color={tab === 'genel' ? newColors.primary[0] : '#888'} />
-          <Text style={[styles.tabText, tab === 'genel' && styles.tabTextActive]}>Genel</Text>
+          <Ionicons name="stats-chart" size={20} color={tab === 'genel' ? newColors.primary[0] : theme.textDim} />
+          <Text style={[styles.tabText, { color: theme.text }, tab === 'genel' && styles.tabTextActive]}>Genel</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, tab === 'gunluk' && styles.tabActive]} 
+          style={[styles.tab, { borderColor: theme.border }, tab === 'gunluk' && [styles.tabActive, { backgroundColor: theme.card }]]} 
           onPress={() => Alert.alert('Bilgi', 'Günlük sekmesi yapım aşamasında')}
         >
-          <Ionicons name="calendar" size={20} color={tab === 'gunluk' ? newColors.secondary[0] : '#888'} />
-          <Text style={[styles.tabText, tab === 'gunluk' && styles.tabTextActive]}>Günlük</Text>
+          <Ionicons name="calendar" size={20} color={tab === 'gunluk' ? newColors.secondary[0] : theme.textDim} />
+          <Text style={[styles.tabText, { color: theme.text }, tab === 'gunluk' && styles.tabTextActive]}>Günlük</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, tab === 'detay' && styles.tabActive]} 
+          style={[styles.tab, { borderColor: theme.border }, tab === 'detay' && [styles.tabActive, { backgroundColor: theme.card }]]} 
           onPress={() => Alert.alert('Bilgi', 'Detay sekmesi yapım aşamasında')}
         >
-          <Ionicons name="analytics" size={20} color={tab === 'detay' ? newColors.purple[0] : '#888'} />
-          <Text style={[styles.tabText, tab === 'detay' && styles.tabTextActive]}>Detay</Text>
+          <Ionicons name="analytics" size={20} color={tab === 'detay' ? newColors.purple[0] : theme.textDim} />
+          <Text style={[styles.tabText, { color: theme.text }, tab === 'detay' && styles.tabTextActive]}>Detay</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {tab === 'genel' ? (
           <>
-            <Text style={styles.title}>Genel Vazife Analizi</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Genel Vazife Analizi</Text>
             {/* Genel başarı ve toplam */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18 }}>
-              <View style={{ flex: 1, alignItems: 'center', marginRight: 8, backgroundColor: '#F8F8F8', borderRadius: 16, padding: 16, elevation: 1 }}>
-                <Ionicons name="checkmark-done-circle" size={28} color="#43CEA2" style={{ marginBottom: 4 }} />
+              <View style={{ flex: 1, alignItems: 'center', marginRight: 8, backgroundColor: theme.surface, borderRadius: 16, padding: 16, elevation: 1 }}>
+          <Ionicons name="checkmark-done-circle" size={28} color={newColors.success[0]} style={{ marginBottom: 4 }} />
                 <Text style={{ fontWeight: 'bold', fontSize: 18, color: theme.text }}>
                   {weeklySummary ? `${weeklySummary.completed} / ${weeklySummary.total}` : '-'}
                 </Text>
                 <Text style={{ color: theme.textDim, fontSize: 13 }}>Toplam Tamamlanan (Haftalık)</Text>
               </View>
-              <View style={{ flex: 1, alignItems: 'center', marginLeft: 8, backgroundColor: '#F8F8F8', borderRadius: 16, padding: 16, elevation: 1 }}>
-                <Ionicons name="trending-up" size={28} color="#FFD200" style={{ marginBottom: 4 }} />
+              <View style={{ flex: 1, alignItems: 'center', marginLeft: 8, backgroundColor: theme.surface, borderRadius: 16, padding: 16, elevation: 1 }}>
+          <Ionicons name="trending-up" size={28} color={newColors.accent[0]} style={{ marginBottom: 4 }} />
                 <Text style={{ fontWeight: 'bold', fontSize: 18, color: theme.text }}>{weeklyPercent}%</Text>
                 <Text style={{ color: theme.textDim, fontSize: 13 }}>Haftalık Başarı</Text>
               </View>
             </View>
             {/* Son 7 gün grafiği */}
-            <View style={{ backgroundColor: '#F8F8F8', borderRadius: 16, padding: 16, marginBottom: 18 }}>
-              <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: 15, marginBottom: 10 }}>Son 7 Gün</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 60 }}>
+              <View style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 16, marginBottom: 18 }}>
+              <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: 15, marginBottom: 10, zIndex: 1 }}>Son 7 Gün</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 80 }}>
                 {(last7Days.length ? last7Days : Array(7).fill(0)).map((val, idx) => (
                   <View key={idx} style={{ alignItems: 'center', flex: 1 }}>
-                    <View style={{ width: 16, height: val * 10 + 8, backgroundColor: '#ABDCFF', borderRadius: 6, marginBottom: 4 }} />
+                    <View style={{ width: 16, height: val * 10 + 8, backgroundColor: newColors.secondary[0], borderRadius: 6, marginBottom: 4 }} />
                     <Text style={{ color: theme.textDim, fontSize: 11 }}>{days[idx]}</Text>
                   </View>
                 ))}
@@ -426,11 +426,11 @@ export default function AnalyticsScreen() {
           </>
         ) : tab === 'gunluk' ? (
           <>
-            <Text style={styles.title}>Günlük Vazife İstatistikleri</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Günlük Vazife İstatistikleri</Text>
             
             {/* Haftalık Tamamlanma Oranı */}
             <View style={styles.weeklyCompletionContainer}>
-              <Text style={styles.sectionTitle}>Son 7 Gün Tamamlanma Oranı</Text>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Son 7 Gün Tamamlanma Oranı</Text>
               <View style={styles.weeklyCompletionContent}>
                 {(() => {
                   const dailyTotal = categorySummary?.daily.total || 0;
@@ -592,7 +592,7 @@ export default function AnalyticsScreen() {
 
             {/* Mini Takvim */}
             <View style={styles.miniCalendarContainer}>
-              <Text style={styles.sectionTitle}>Son 7 Gün</Text>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Son 7 Gün</Text>
               <View style={styles.miniCalendar}>
                 {(() => {
                   const start = new Date();
@@ -663,11 +663,11 @@ export default function AnalyticsScreen() {
           </>
         ) : tab === 'detay' ? (
           <>
-            <Text style={styles.title}>Detaylı Alışkanlık Analizi</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Detaylı Alışkanlık Analizi</Text>
             
             {/* Isı Haritası */}
             <View style={styles.heatMapContainer}>
-              <Text style={styles.sectionTitle}>Aktivite Isı Haritası</Text>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Aktivite Isı Haritası</Text>
               <View style={styles.heatMap}>
                 {Array.from({ length: 30 }).map((_, idx) => (
                   <View 
@@ -738,7 +738,7 @@ export default function AnalyticsScreen() {
               <TouchableOpacity onPress={handlePrevWeek} style={{ padding: 6 }}>
                 <Ionicons name="chevron-back" size={22} color={theme.text} />
               </TouchableOpacity>
-              <Text style={styles.title}>
+              <Text style={[styles.title, { color: theme.text }]}>
                 {leaderboard ? `${format(new Date(leaderboard.start), 'd MMMM', { locale: tr })} – ${format(new Date(leaderboard.end), 'd MMMM', { locale: tr })} haftası` : 'Sıralamalar'}
               </Text>
               <TouchableOpacity onPress={handleNextWeek} style={{ padding: 6 }}>
@@ -746,12 +746,12 @@ export default function AnalyticsScreen() {
               </TouchableOpacity>
             </View>
             {/* Sıralama alt sekmeleri */}
-            <View style={{ flexDirection: 'row', backgroundColor: '#F2F3F5', borderRadius: 10, padding: 4, marginBottom: 10 }}>
-              <TouchableOpacity onPress={() => { setLbMode('haftalik'); setTaskLeaderboard(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: lbMode==='haftalik' ? '#fff' : 'transparent' }}>
-                <Text style={{ fontWeight: '600', color: lbMode==='haftalik' ? '#111' : '#666' }}>Haftalık</Text>
+            <View style={{ flexDirection: 'row', backgroundColor: theme.surface, borderRadius: 10, padding: 4, marginBottom: 10 }}>
+              <TouchableOpacity onPress={() => { setLbMode('haftalik'); setTaskLeaderboard(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: lbMode==='haftalik' ? theme.card : 'transparent' }}>
+                <Text style={{ fontWeight: '600', color: lbMode==='haftalik' ? theme.text : theme.textDim }}>Haftalık</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => { setLbMode('vazife'); setLeaderboard(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: lbMode==='vazife' ? '#fff' : 'transparent' }}>
-                <Text style={{ fontWeight: '600', color: lbMode==='vazife' ? '#111' : '#666' }}>Vazife Bazlı</Text>
+              <TouchableOpacity onPress={() => { setLbMode('vazife'); setLeaderboard(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: lbMode==='vazife' ? theme.card : 'transparent' }}>
+                <Text style={{ fontWeight: '600', color: lbMode==='vazife' ? theme.text : theme.textDim }}>Vazife Bazlı</Text>
               </TouchableOpacity>
             </View>
 
@@ -770,27 +770,27 @@ export default function AnalyticsScreen() {
               </View>
             )}
 
-            <View style={styles.taskPerformanceContainer}>
+            <View style={[styles.taskPerformanceContainer, { backgroundColor: theme.surface }] }>
               {(
                 (lbMode==='haftalik' && leaderboard && leaderboard.items.length > 0) ||
                 (lbMode==='vazife' && taskLeaderboard && taskLeaderboard.items.length > 0)
               ) ? (
                 (lbMode==='haftalik' ? (leaderboard?.items || []) : (taskLeaderboard?.items || [])).map((item, idx) => (
-                  <View key={item.userId} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+                  <View key={item.userId} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
                     {/* Üst satır: sıra + ikon + isim (sol), puan (sağ) */}
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                        <Text style={{ width: 22, textAlign: 'right', fontWeight: 'bold', color: '#666', marginRight: 8 }}>{idx + 1}.</Text>
-                        <Ionicons name={idx === 0 ? 'trophy' : 'person-circle'} size={20} color={idx === 0 ? '#FFD93D' : '#888'} style={{ marginRight: 8 }} />
-                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontWeight: '600', color: '#222', flexShrink: 1 }}>
+                        <Text style={{ width: 22, textAlign: 'right', fontWeight: 'bold', color: theme.textDim, marginRight: 8 }}>{idx + 1}.</Text>
+                        <Ionicons name={idx === 0 ? 'trophy' : 'person-circle'} size={20} color={idx === 0 ? newColors.accent[0] : theme.textDim} style={{ marginRight: 8 }} />
+                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontWeight: '600', color: theme.text, flexShrink: 1 }}>
                           {item.displayName}
                         </Text>
                       </View>
-                      <Text style={{ fontWeight: '700', color: '#222', marginLeft: 12 }}>{item.points}</Text>
+                      <Text style={{ fontWeight: '700', color: theme.text, marginLeft: 12 }}>{item.points}</Text>
                     </View>
                     {/* Alt satır: detay sağda tek satır */}
                     <View style={{ marginTop: 4 }}>
-                      <Text style={{ fontSize: 12, color: '#666', textAlign: 'right' }} numberOfLines={1} ellipsizeMode="tail">
+                      <Text style={{ fontSize: 12, color: theme.textDim, textAlign: 'right' }} numberOfLines={1} ellipsizeMode="tail">
                         {item.fullDays}/{(lbMode==='haftalik' ? (leaderboard?.daysInRange || 0) : (taskLeaderboard?.daysInRange || 0))} tam gün • {item.completedCount} tamamlanan
                       </Text>
                     </View>
@@ -814,7 +814,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#F8F8F8',
     borderRadius: 16,
     margin: 16,
     marginBottom: 0,
@@ -830,18 +829,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   tabActive: {
-    backgroundColor: '#fff',
     elevation: 2,
   },
   tabText: {
-    color: '#888',
     fontWeight: '600',
     fontSize: 14,
   },
-  tabTextActive: {
-    color: '#222',
-  },
-  title: { fontSize: 18, fontWeight: 'bold', marginBottom: 14, color: '#222' },
+  tabTextActive: {},
+  title: { fontSize: 18, fontWeight: 'bold', marginBottom: 14 },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18 },
   statCard: {
     flex: 1,
@@ -864,7 +859,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#222',
     marginBottom: 12,
   },
   heatMapContainer: {
@@ -1128,7 +1122,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   taskPerformanceContainer: {
-    backgroundColor: '#fff',
     borderRadius: 16,
     padding: 16,
     marginBottom: 20,
@@ -1143,7 +1136,6 @@ const styles = StyleSheet.create({
   },
   taskPerformanceCard: {
     width: 200,
-    backgroundColor: '#F8F8F8',
     borderRadius: 12,
     padding: 12,
     marginRight: 12,
