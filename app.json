@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "icon": "./assets/images/icon.png",
+      "buildNumber": "2",
       "bundleIdentifier": "com.mtuyarr.ibnizaman",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -39,9 +40,13 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-9.16.png",
-          "resizeMode": "cover",
-          "backgroundColor": "#ffffff"
+          "image": "./assets/images/icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "image": "./assets/images/icon.png",
+            "backgroundColor": "#0F172A"
+          }
         }
       ],
       "expo-font"
@@ -52,7 +57,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "2fa1bb3d-3606-42e8-929c-bdd76d50bdc9"
+        "projectId": "da5826aa-089a-4973-9f1d-a9150051f57a"
       }
     },
     "runtimeVersion": {
@@ -60,6 +65,7 @@
     },
     "updates": {
       "url": "https://u.expo.dev/2fa1bb3d-3606-42e8-929c-bdd76d50bdc9"
-    }
+    },
+    "owner": "mtuyar"
   }
 }
