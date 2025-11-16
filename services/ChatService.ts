@@ -1,25 +1,21 @@
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  getDocs,
-  onSnapshot,
-  serverTimestamp,
-  Timestamp,
-  arrayUnion,
-  arrayRemove,
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
   getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
   startAfter,
+  Timestamp,
+  updateDoc,
+  where,
   writeBatch
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import { getUser } from '../services/UserService';
 
 // Tip tanımlamaları
@@ -28,6 +24,7 @@ export interface Chat {
   type: 'private' | 'group';
   name?: string;
   photoURL?: string | null;
+  participantIds: string[];
   participants: {
     userId: string;
     role: 'admin' | 'member';
@@ -44,6 +41,8 @@ export interface Chat {
   };
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  // Only for private chats: sorted participant key for exact lookup
+  privateKey?: string;
 }
 
 export interface Message {
@@ -70,26 +69,29 @@ export const checkExistingChat = async (
   userId2: string
 ): Promise<string | null> => {
   try {
-    // Her iki kullanıcının da katıldığı sohbetleri bul
+    // Use deterministic private key to find existing private chat in O(1)
+    const [a, b] = [userId1, userId2].sort();
     const q = query(
       collection(db, 'chats'),
       where('type', '==', 'private'),
-      where('participants', 'array-contains', { userId: userId1, role: 'member' })
+      where('privateKey', '==', `${a}_${b}`)
     );
 
     const querySnapshot = await getDocs(q);
-    
-    // Diğer kullanıcının da katıldığı sohbeti bul
-    const existingChat = querySnapshot.docs.find(doc => {
-      const chat = doc.data() as Chat;
-      return chat.participants.some(p => p.userId === userId2);
-    });
-
-    if (existingChat) {
-      return existingChat.id;
+    if (!querySnapshot.empty) {
+      return querySnapshot.docs[0].id;
     }
 
-    return null;
+    // Fallback for legacy records without privateKey/participantIds
+    const legacyQ = query(collection(db, 'chats'), where('type', '==', 'private'));
+    const legacySnap = await getDocs(legacyQ);
+    const found = legacySnap.docs.find(d => {
+      const c: any = d.data();
+      const ids: string[] = c.participantIds || (c.participants || []).map((p: any) => p.userId);
+      if (!Array.isArray(ids)) return false;
+      return ids.includes(userId1) && ids.includes(userId2);
+    });
+    return found ? found.id : null;
   } catch (error) {
     console.error('Sohbet kontrolü hatası:', error);
     throw error;
@@ -126,10 +128,13 @@ export const createChat = async (
     }
 
     const now = Timestamp.now();
+    const participantIds = [...participants];
+    const privateKey = type === 'private' ? [...participants].sort().join('_') : undefined;
     const chatData: Omit<Chat, 'id'> = {
       type,
       name: name || 'İsimsiz Sohbet',
       photoURL: photoURL || null,
+      participantIds,
       participants: participants.map(userId => ({
         userId,
         role: 'member',
@@ -137,7 +142,8 @@ export const createChat = async (
       })),
       unreadCount: {},
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      privateKey
     };
 
     const chatRef = await addDoc(collection(db, 'chats'), chatData);
@@ -155,53 +161,52 @@ export const getChats = async (userId: string): Promise<Chat[]> => {
       return [];
     }
 
-    // Tüm sohbetleri getir
-    const q = query(
-      collection(db, 'chats'),
-      orderBy('updatedAt', 'desc')
-    );
-
-    const querySnapshot = await getDocs(q);
-    
-    // Kullanıcının katıldığı sohbetleri filtrele
-    const userChats = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Chat))
-      .filter(chat => 
-        chat.participants.some(p => p.userId === userId)
+    let uniqueChats: Chat[] = [];
+    try {
+      // Yeni model ile sorgu
+      const q = query(
+        collection(db, 'chats'),
+        where('participantIds', 'array-contains', userId),
+        orderBy('updatedAt', 'desc')
       );
+      const querySnapshot = await getDocs(q);
+      uniqueChats = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
 
-    // Özel sohbetleri birleştir
-    const mergedChats = new Map<string, Chat>();
-    
-    for (const chat of userChats) {
-      if (chat.type === 'private') {
-        // Diğer kullanıcıyı bul
-        const otherParticipant = chat.participants.find(p => p.userId !== userId);
-        if (!otherParticipant) continue;
-
-        const otherUserId = otherParticipant.userId;
-        
-        // Eğer bu kullanıcı ile olan sohbet daha önce eklenmemişse veya
-        // mevcut sohbet daha yeniyse, güncelle
-        if (!mergedChats.has(otherUserId) || 
-            (chat.updatedAt && mergedChats.get(otherUserId)?.updatedAt && 
-             chat.updatedAt.toMillis() > mergedChats.get(otherUserId)!.updatedAt.toMillis())) {
-          mergedChats.set(otherUserId, chat);
-        }
-      } else {
-        // Grup sohbetlerini olduğu gibi ekle
-        mergedChats.set(chat.id, chat);
+      // Eğer sonuç boşsa legacy fallback ile listeyi doldur
+      if (!uniqueChats.length) {
+        const allQ = query(collection(db, 'chats'), orderBy('updatedAt', 'desc'));
+        const allSnap = await getDocs(allQ);
+        uniqueChats = allSnap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as any))
+          .filter((c: any) => (c.participantIds || (c.participants || []).map((p: any) => p.userId)).includes(userId));
       }
+    } catch (e) {
+      console.warn('getChats fell back to legacy filter due to error:', e);
+      // Eski kayıtlar için fallback: hepsini çekip filtrele
+      const allQ = query(collection(db, 'chats'), orderBy('updatedAt', 'desc'));
+      const allSnap = await getDocs(allQ);
+      uniqueChats = allSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter((c: any) => (c.participantIds || (c.participants || []).map((p: any) => p.userId)).includes(userId));
     }
-
-    // Birleştirilmiş sohbetleri diziye çevir
-    const uniqueChats = Array.from(mergedChats.values());
 
     // Her sohbet için diğer kullanıcı bilgilerini yükle
     const enrichedChats = await Promise.all(uniqueChats.map(async (chat) => {
+      // Opportunistic migration: ensure participantIds/privateKey exist
+      try {
+        const needsIds = !Array.isArray((chat as any).participantIds) || (chat as any).participantIds.length === 0;
+        const needsKey = chat.type === 'private' && !(chat as any).privateKey;
+        if (needsIds || needsKey) {
+          const derivedIds = (chat as any).participantIds || (chat.participants || []).map((p: any) => p.userId);
+          const derivedKey = chat.type === 'private' ? [...derivedIds].sort().join('_') : undefined;
+          const update: any = {};
+          if (needsIds) update.participantIds = derivedIds;
+          if (needsKey) update.privateKey = derivedKey;
+          await updateDoc(doc(db, 'chats', chat.id), update);
+          (chat as any).participantIds = derivedIds;
+          if (derivedKey) (chat as any).privateKey = derivedKey;
+        }
+      } catch {}
       if (chat.type === 'private') {
         const otherParticipant = chat.participants.find(p => p.userId !== userId);
         if (otherParticipant) {
@@ -363,12 +368,8 @@ export const initializeGlobalMessageListener = (userId: string) => {
           if (callback) {
             callback(messages);
           }
-          
-          // Yeni mesajları okundu olarak işaretle
-          if (userId && snapshot.docChanges().some(change => 
-            change.type === 'added' && change.doc.data().senderId !== userId)) {
-            await markMessageAsRead(chat.id, userId);
-          }
+        }, (error) => {
+          console.error('Messages listener error for chat', chat.id, error);
         });
         
         globalMessageSubscriptions.set(chat.id, unsubscribe);
@@ -424,6 +425,8 @@ export const addChatToGlobalListener = (chatId: string, userId: string) => {
       if (callback) {
         callback(messages);
       }
+    }, (error) => {
+      console.error('Messages listener error for chat', chatId, error);
     });
     
     globalMessageSubscriptions.set(chatId, unsubscribe);
@@ -575,28 +578,40 @@ export const subscribeToChats = (
   userId: string,
   callback: (chats: Chat[]) => void
 ) => {
-  const q = query(
+  const primaryQ = query(
     collection(db, 'chats'),
-    where('participants', 'array-contains', { userId, role: 'member' })
+    where('participantIds', 'array-contains', userId),
+    orderBy('updatedAt', 'desc')
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const chats = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Chat));
-
-    // Sohbetleri son mesaj zamanına göre sırala
-    chats.sort((a, b) => {
-      const aTime = a.updatedAt?.toMillis() || 0;
-      const bTime = b.updatedAt?.toMillis() || 0;
-      return bTime - aTime;
-    });
-
-    callback(chats);
+  const primaryUnsub = onSnapshot(primaryQ, (snapshot) => {
+    const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
+    if (chats.length > 0) {
+      callback(chats);
+    } else {
+      // Legacy fallback listener
+      const legacyQ = query(collection(db, 'chats'), orderBy('updatedAt', 'desc'));
+      const legacyUnsub = onSnapshot(legacyQ, (snap) => {
+        const legacy = snap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as any))
+          .filter((c: any) => (c.participantIds || (c.participants || []).map((p: any) => p.userId)).includes(userId));
+        callback(legacy as Chat[]);
+      }, (error) => {
+        console.error('Sohbet dinleyici hatası (legacy):', error);
+      });
+      // Return a composite unsubscribe if we installed legacy listener
+      const combined = () => {
+        try { legacyUnsub(); } catch {}
+        try { primaryUnsub(); } catch {}
+      };
+      // Replace original unsubscribe with combined
+      (combined as any).__isCombined = true;
+    }
   }, (error) => {
-    console.error('Sohbet dinleyici hatası:', error);
+    console.error('Sohbet dinleyici hatası (primary):', error);
   });
+
+  return primaryUnsub;
 };
 
 // Mesajları dinle - performans için optimize edildi

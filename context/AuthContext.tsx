@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { User, onAuthStateChanged } from 'firebase/auth';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { auth } from '../config/firebase';
+import { isUserAdmin } from '../services/AdminService';
 import * as AuthService from '../services/AuthService';
 import { initializeGlobalMessageListener } from '../services/ChatService';
-import { isUserAdmin } from '../services/AdminService';
+import { registerDevicePushToken } from '../services/PushService';
 
 interface AuthContextProps {
   user: User | null;
@@ -85,6 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Kullanıcı giriş yaptığında global mesaj dinleyiciyi başlat
         messageListenerCleanupRef.current = initializeGlobalMessageListener(authUser.uid);
+        // FCM cihaz tokenını kaydet
+        registerDevicePushToken(authUser.uid).catch(console.error);
 
         const adminStatus = await isUserAdmin(authUser.uid);
         setIsAdmin(adminStatus);

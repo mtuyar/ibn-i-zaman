@@ -214,22 +214,6 @@ export default function TaskDefinitionsScreen() {
               <Ionicons name="add" size={24} color="#FFFFFF" />
               <Text style={styles.addButtonText}>Yeni Vazife Ekle</Text>
             </TouchableOpacity>
-            {/* Örnek Vazifeleri Ekle butonu */}
-            <TouchableOpacity
-              style={[styles.addButton, { backgroundColor: theme.accent, marginTop: 8 }]}
-              onPress={async () => {
-                try {
-                  const { addSampleTasks } = await import('../services/TaskService');
-                  await addSampleTasks();
-                  Alert.alert('Başarılı', 'Örnek vazifeler eklendi!');
-                } catch (e) {
-                  Alert.alert('Hata', 'Örnek vazifeler eklenirken bir hata oluştu.');
-                }
-              }}
-            >
-              <Ionicons name="flask" size={22} color="#FFFFFF" />
-              <Text style={styles.addButtonText}>Örnek Vazifeleri Ekle</Text>
-            </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.taskList}>

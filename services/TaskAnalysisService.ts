@@ -1,4 +1,4 @@
-import { endOfWeek, format, startOfWeek } from 'date-fns';
+import { endOfWeek, format, startOfWeek, endOfMonth, startOfMonth } from 'date-fns';
 import { collection, getDocs, query, Timestamp, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { getUsersByIds, User } from './UserService';
@@ -7,14 +7,17 @@ import { getUsersByIds, User } from './UserService';
 const ANALYTICS_DEBUG = false;
 const dbg = (...args: any[]) => { try { if (ANALYTICS_DEBUG) console.log(...args); } catch {} };
 
-// Haftalık toplam ve tamamlanan vazife: Günlük*7 + Haftalık; tamamlananlar userTaskStatuses'tan (client-side filtre)
+// Haftalık toplam ve tamamlanan vazife: Günlük*7 + Haftalık; tamamlananlar date field bazlı
 export async function getWeeklyTaskCompletionSummaryV2(userId: string): Promise<{ total: number, completed: number }> {
-  // Görev tanımlarını geniş al, client-side filtrele (index gerekmesin)
+  // Görev tanımlarını al
   const defsSnap = await getDocs(collection(db, 'taskDefinitions'));
   let dailyCount = 0;
   let weeklyCount = 0;
+  const defCats: Record<string, 'daily' | 'weekly' | 'monthly' | string> = {};
+  
   defsSnap.forEach(d => {
     const data: any = d.data();
+    defCats[d.id] = data?.category;
     if (data?.isActive) {
       if (data?.category === 'daily') dailyCount += 1;
       if (data?.category === 'weekly') weeklyCount += 1;
@@ -22,27 +25,46 @@ export async function getWeeklyTaskCompletionSummaryV2(userId: string): Promise<
   });
   const total = dailyCount * 7 + weeklyCount;
 
-  // Haftanın tarih aralığı
+  // Haftanın tarih aralığı (Pzt-Paz)
   const today = new Date();
   const weekStart = startOfWeek(today, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+  
+  // Haftanın tüm günlerinin date keys'i
+  const dateKeys: string[] = [];
+  const cursor = new Date(weekStart);
+  while (cursor <= weekEnd) {
+    dateKeys.push(format(cursor, 'yyyy-MM-dd'));
+    cursor.setDate(cursor.getDate() + 1);
+  }
 
-  // Kullanıcının tüm statülerini çek; kategori alanı boş olduğundan taskId'den kategori türet
-  const userStatusesSnap = await getDocs(query(collection(db, 'userTaskStatuses'), where('userId', '==', userId)));
-
-  // taskDefId -> category haritası
-  const defCats: Record<string, 'daily' | 'weekly' | 'monthly' | string> = {};
-  defsSnap.forEach(d => { const data: any = d.data(); defCats[d.id] = data?.category; });
+  // Kullanıcının completed görevlerini çek
+  const userStatusesSnap = await getDocs(query(
+    collection(db, 'userTaskStatuses'), 
+    where('userId', '==', userId),
+    where('status', '==', 'completed')
+  ));
 
   let completed = 0;
   userStatusesSnap.forEach(s => {
     const data: any = s.data();
-    if (data?.status !== 'completed') return;
-    const comp: Date | null = data.completedAt?.toDate ? data.completedAt.toDate() : (data.completedAt ? new Date(data.completedAt) : null);
-    if (!comp || comp < weekStart || comp > weekEnd) return;
+    
+    // Görevin ATANDIĞI tarihe bak (date field)
+    let dateKey: string | undefined;
+    if (typeof data?.date === 'string') {
+      dateKey = data.date;
+    } else if (data?.date?.toDate) {
+      dateKey = format(data.date.toDate(), 'yyyy-MM-dd');
+    } else if (data?.date instanceof Date) {
+      dateKey = format(data.date, 'yyyy-MM-dd');
+    }
+    
+    // Hafta içinde değilse atla
+    if (!dateKey || !dateKeys.includes(dateKey)) return;
 
     const rawTaskId: string | undefined = data?.taskId;
     if (!rawTaskId) return;
+    
     let category: string | undefined;
     const parts = rawTaskId.split('_');
     for (const p of parts) { if (defCats[p]) { category = defCats[p]; break; } }
@@ -90,14 +112,34 @@ export async function getCategoryCompletionSummary(userId: string): Promise<{
   // Haftalık
   const wStart = startOfWeek(today, { weekStartsOn: 1 });
   const wEnd = endOfWeek(today, { weekStartsOn: 1 });
+  
+  // Haftanın date keys'i
+  const weekKeys: string[] = [];
+  const wCursor = new Date(wStart);
+  while (wCursor <= wEnd) {
+    weekKeys.push(format(wCursor, 'yyyy-MM-dd'));
+    wCursor.setDate(wCursor.getDate() + 1);
+  }
+  
   let weeklyTotal = 0;
   dailyDefsSnap.forEach(d => { const data: any = d.data(); if (data?.isActive && data?.category === 'weekly') weeklyTotal += 1; });
   let weeklyCompleted = 0;
   dailyCompletedSnap.forEach(s => {
     const data: any = s.data();
     if (data?.status !== 'completed') return;
-    const comp: Date | null = data.completedAt?.toDate ? data.completedAt.toDate() : (data.completedAt ? new Date(data.completedAt) : null);
-    if (!comp || comp < wStart || comp > wEnd) return;
+    
+    // Görevin ATANDIĞI tarihe bak (date field)
+    let dateKey: string | undefined;
+    if (typeof data?.date === 'string') {
+      dateKey = data.date;
+    } else if (data?.date?.toDate) {
+      dateKey = format(data.date.toDate(), 'yyyy-MM-dd');
+    } else if (data?.date instanceof Date) {
+      dateKey = format(data.date, 'yyyy-MM-dd');
+    }
+    
+    if (!dateKey || !weekKeys.includes(dateKey)) return;
+    
     const rawTaskId: string | undefined = data?.taskId;
     if (!rawTaskId) return;
     let cat: string | undefined;
@@ -108,16 +150,36 @@ export async function getCategoryCompletionSummary(userId: string): Promise<{
   });
 
   // Aylık
-  const mStart = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
-  const mEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+  const mStart = startOfMonth(today);
+  const mEnd = endOfMonth(today);
+  
+  // Ayın date keys'i
+  const monthKeys: string[] = [];
+  const mCursor = new Date(mStart);
+  while (mCursor <= mEnd) {
+    monthKeys.push(format(mCursor, 'yyyy-MM-dd'));
+    mCursor.setDate(mCursor.getDate() + 1);
+  }
+  
   let monthlyTotal = 0;
   dailyDefsSnap.forEach(d => { const data: any = d.data(); if (data?.isActive && data?.category === 'monthly') monthlyTotal += 1; });
   let monthlyCompleted = 0;
   dailyCompletedSnap.forEach(s => {
     const data: any = s.data();
     if (data?.status !== 'completed') return;
-    const comp: Date | null = data.completedAt?.toDate ? data.completedAt.toDate() : (data.completedAt ? new Date(data.completedAt) : null);
-    if (!comp || comp < mStart || comp > mEnd) return;
+    
+    // Görevin ATANDIĞI tarihe bak (date field)
+    let dateKey: string | undefined;
+    if (typeof data?.date === 'string') {
+      dateKey = data.date;
+    } else if (data?.date?.toDate) {
+      dateKey = format(data.date.toDate(), 'yyyy-MM-dd');
+    } else if (data?.date instanceof Date) {
+      dateKey = format(data.date, 'yyyy-MM-dd');
+    }
+    
+    if (!dateKey || !monthKeys.includes(dateKey)) return;
+    
     const rawTaskId: string | undefined = data?.taskId;
     if (!rawTaskId) return;
     let cat: string | undefined;
@@ -134,41 +196,53 @@ export async function getCategoryCompletionSummary(userId: string): Promise<{
   };
 }
 
-// Yeni: Son 7 gün tamamlanan sayıları (gün bazında)
+// Bu haftanın tamamlanan vazife sayıları (Pazartesi'den bugüne kadar)
 export async function getLast7DaysCompletion(userId: string): Promise<number[]> {
   const today = new Date();
-  const start = new Date(today);
-  start.setDate(today.getDate() - 6);
-  start.setHours(0, 0, 0, 0);
-
-  // Last 7 day keys as 'yyyy-MM-dd'
-  const keys: string[] = [];
+  
+  // Haftanın başlangıcı (Pazartesi)
+  const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+  weekStart.setHours(0, 0, 0, 0);
+  
+  // Haftanın tüm günleri (Pzt-Paz) için keys oluştur
+  const allKeys: string[] = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    keys.push(format(d, 'yyyy-MM-dd'));
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    allKeys.push(format(d, 'yyyy-MM-dd'));
   }
+  
+  // Bugüne kadar olan günlerin keys'i (query için)
+  const todayKey = format(today, 'yyyy-MM-dd');
+  const todayIndex = allKeys.indexOf(todayKey);
+  const activeKeys = allKeys.slice(0, todayIndex + 1); // Pazartesi'den bugüne kadar
 
   // 1) Get active daily task definition ids
   const defsSnap = await getDocs(query(collection(db, 'taskDefinitions'), where('isActive', '==', true), where('category', '==', 'daily')));
   const dailyIds = new Set<string>();
   defsSnap.forEach(d => dailyIds.add(d.id));
 
-  // 2) Get user statuses for these 7 dates (date is stored as 'yyyy-MM-dd' string in this collection)
-  const statusesSnap = await getDocs(query(
-    collection(db, 'userTaskStatuses'),
-    where('userId', '==', userId),
-    where('date', 'in', keys as any)
-  ));
+  // 2) Get user statuses for this week's active dates
+  let statusesSnap: any;
+  if (activeKeys.length > 0) {
+    // Firestore 'in' query max 10 item, bizim max 7 olduğu için sorun yok
+    statusesSnap = await getDocs(query(
+      collection(db, 'userTaskStatuses'),
+      where('userId', '==', userId),
+      where('date', 'in', activeKeys as any)
+    ));
+  } else {
+    statusesSnap = { forEach: () => {} }; // Empty result
+  }
 
   // 3) Group counts by date
-  const counts: Record<string, number> = Object.fromEntries(keys.map(k => [k, 0]));
-  statusesSnap.forEach(s => {
+  const counts: Record<string, number> = Object.fromEntries(allKeys.map(k => [k, 0]));
+  statusesSnap.forEach((s: any) => {
     const data: any = s.data();
     const dateKey: string | undefined = typeof data?.date === 'string' ? data.date : undefined;
     const rawTaskId: string | undefined = data?.taskId;
     const status: string | undefined = data?.status;
-    if (!dateKey || !keys.includes(dateKey)) return;
+    if (!dateKey || !activeKeys.includes(dateKey)) return;
     if (!rawTaskId) return;
 
     // Derive taskDefId from taskId (may be composite like user_taskDefId_timestamp)
@@ -184,8 +258,9 @@ export async function getLast7DaysCompletion(userId: string): Promise<number[]> 
     counts[dateKey] = (counts[dateKey] || 0) + 1;
   });
 
-  const result = keys.map(k => counts[k] || 0);
-  try { dbg('[Analytics:getLast7] keys', keys, 'dailyTotal', dailyIds.size, 'result', result); } catch {}
+  // Return 7 günlük array: Geçmiş günler dolu, gelecek günler 0
+  const result = allKeys.map(k => counts[k] || 0);
+  try { dbg('[Analytics:ThisWeek] keys', allKeys, 'activeKeys', activeKeys, 'result', result); } catch {}
   return result;
 }
 
@@ -323,6 +398,7 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
   start: Date;
   end: Date;
   daysInRange: number;
+  taskCount: number;
   items: Array<{
     userId: string;
     displayName: string;
@@ -337,7 +413,9 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
   const weekStart = startOfWeek(base, { weekStartsOn: 1 });
   const endCandidate = endOfWeek(base, { weekStartsOn: 1 });
   const isCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }).getTime() === weekStart.getTime();
-  const weekEnd = isCurrentWeek ? (today < endCandidate ? today : endCandidate) : endCandidate;
+  
+  // Hafta sonu sorunu düzeltildi: Tüm haftalar için tam hafta (Pazar dahil)
+  const weekEnd = endCandidate;
 
   const start = new Date(weekStart);
   start.setHours(0, 0, 0, 0);
@@ -375,17 +453,22 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
   const dailyDefIds = cache.ids;
   const N = dailyDefIds.size || 0;
   if (N === 0) {
-    return { start, end, daysInRange: dateKeys.length, items: [] };
+    return { start, end, daysInRange: dateKeys.length, taskCount: 0, items: [] };
   }
 
-  // Tek sorgu: userTaskStatuses (Timestamp tarih alanı) ve yalnız completed
+  // Tek sorgu: userTaskStatuses - hafta içi + birkaç gün sonrası
+  // (Çünkü kullanıcı hafta içindeki bir gün için vazife atayıp daha sonra tamamlayabilir)
   let tsSnap: any = { forEach: (_: any) => {} };
   const tStatus0 = Date.now();
+  const queryEnd = new Date(end);
+  queryEnd.setDate(queryEnd.getDate() + 3); // Hafta sonundan 3 gün sonrasına kadar
+  queryEnd.setHours(23, 59, 59, 999);
+  
   tsSnap = await getDocs(query(
     collection(db, 'userTaskStatuses'),
     where('status', '==', 'completed'),
     where('completedAt', '>=', Timestamp.fromDate(start)),
-    where('completedAt', '<=', Timestamp.fromDate(end))
+    where('completedAt', '<=', Timestamp.fromDate(queryEnd))
   ));
   const tStatus1 = Date.now();
 
@@ -395,10 +478,12 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
   const ingest = (docs: any) => {
     docs.forEach((s: any) => {
       const data: any = s.data();
-      if (data?.status !== 'completed') return; // filter client-side to drop non-completed
+      if (data?.status !== 'completed') return;
       const userId: string | undefined = data?.userId;
       if (!userId) return;
 
+      // ÖNEMLİ: Görevin ATANDIĞI tarihe bakıyoruz (date field), tamamlandığı değil!
+      // Çünkü kullanıcı Pazar günü için vazife atayıp Pazartesi tamamlasa, Pazar'a sayılmalı
       let dateKey: string | undefined;
       if (typeof data?.date === 'string') {
         dateKey = data.date;
@@ -407,9 +492,13 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
       } else if (data?.date instanceof Date) {
         dateKey = format(data.date, 'yyyy-MM-dd');
       } else if (data?.completedAt?.toDate) {
+        // Fallback: Eğer date yoksa completedAt'e bak
         dateKey = format(data.completedAt.toDate(), 'yyyy-MM-dd');
       }
-      if (!dateKey || !dateKeys.includes(dateKey)) return;
+      if (!dateKey) return;
+      
+      // Görevin atandığı tarih hafta içinde mi kontrol et
+      if (!dateKeys.includes(dateKey)) return;
 
       const rawTaskId: string | undefined = data?.taskDefId || data?.taskId;
       let taskDefId: string | undefined = rawTaskId;
@@ -461,12 +550,18 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
     const dayCounts = byUser[userId];
     let completedCount = 0;
     let fullDays = 0;
+    
+    // Her gün için kontrol et
     Object.values(dayCounts).forEach(c => {
       completedCount += c;
+      // Bir günde tüm günlük vazifeler tamamlanmışsa tam gün sayılır
       if (c >= N) fullDays += 1;
     });
+    
+    // Eski puanlama sistemi: toplam tamamlanan görev * puan per görev
     const rawPoints = completedCount * perTaskPoint;
     const points = Math.round(rawPoints * 100) / 100;
+    
     return {
       userId,
       displayName: idToName[userId] || userId,
@@ -483,6 +578,11 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
   const t1 = Date.now();
   try {
     dbg('[LB] refs', { start, end, days: dateKeys.length });
+    dbg('[LB] dateKeys', dateKeys);
+    dbg('[LB] byUser sample', Object.keys(byUser).slice(0, 2).map(uid => ({
+      userId: uid,
+      dayCounts: byUser[uid]
+    })));
     dbg('[LB] timings(ms)', {
       total: t1 - t0,
       defs: tDefs1 - tDefs0,
@@ -492,7 +592,175 @@ export async function getWeeklyLeaderboard(referenceDate?: Date): Promise<{
       ingestCount: items.length,
     });
   } catch {}
-  return { start, end, daysInRange: dateKeys.length, items };
+  return { start, end, daysInRange: dateKeys.length, taskCount: N, items };
+}
+
+export async function getMonthlyLeaderboard(referenceDate?: Date): Promise<{
+  start: Date;
+  end: Date;
+  daysInRange: number;
+  taskCount: number;
+  items: Array<{
+    userId: string;
+    displayName: string;
+    points: number;
+    fullDays: number;
+    completedCount: number;
+  }>;
+}> {
+  const today = new Date();
+  const base = referenceDate ? new Date(referenceDate) : today;
+  const monthStart = startOfMonth(base);
+  const monthEndCandidate = endOfMonth(base);
+  const isCurrentMonth = monthStart.getFullYear() === startOfMonth(today).getFullYear() && monthStart.getMonth() === startOfMonth(today).getMonth();
+  const monthEnd = isCurrentMonth ? (today < monthEndCandidate ? today : monthEndCandidate) : monthEndCandidate;
+
+  const start = new Date(monthStart);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(monthEnd);
+  end.setHours(23, 59, 59, 999);
+
+  // Ayın tüm günlerini oluştur
+  const dateKeys: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dateKeys.push(format(cursor, 'yyyy-MM-dd'));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Aktif günlük vazife sayısı (N) - Aylık gösterim günlük vazifelere bakar!
+  type CacheBucket = { ids: Set<string>; expires: number };
+  const globalAny: any = globalThis as any;
+  if (!globalAny.__daily_defs_cache) globalAny.__daily_defs_cache = { ids: new Set<string>(), expires: 0 } as CacheBucket;
+  let cache: CacheBucket = globalAny.__daily_defs_cache as CacheBucket;
+  const now = Date.now();
+  if (cache.expires < now || cache.ids.size === 0) {
+    const defsSnap = await getDocs(query(
+      collection(db, 'taskDefinitions'),
+      where('isActive', '==', true),
+      where('category', '==', 'daily')
+    ));
+    const next = new Set<string>();
+    defsSnap.forEach(d => next.add(d.id));
+    cache = { ids: next, expires: now + 10 * 60 * 1000 };
+    globalAny.__daily_defs_cache = cache;
+  }
+  const dailyDefIds = cache.ids;
+  const N = dailyDefIds.size || 0;
+  
+  const daysInRange = dateKeys.length;
+  
+  if (N === 0) {
+    return { start, end, daysInRange, taskCount: 0, items: [] };
+  }
+
+  // Ayın tarih aralığındaki tüm tamamlanan günlük görevleri getir
+  const statusesSnap = await getDocs(query(
+    collection(db, 'userTaskStatuses'),
+    where('status', '==', 'completed'),
+    where('completedAt', '>=', Timestamp.fromDate(start)),
+    where('completedAt', '<=', Timestamp.fromDate(end))
+  ));
+
+  type DayMap = Record<string, number>;
+  const byUser: Record<string, DayMap> = {};
+
+  statusesSnap.forEach(s => {
+    const data: any = s.data();
+    if (data?.status !== 'completed') return;
+    const userId: string | undefined = data?.userId;
+    if (!userId) return;
+
+    let dateKey: string | undefined;
+    if (typeof data?.date === 'string') {
+      dateKey = data.date;
+    } else if (data?.date?.toDate) {
+      dateKey = format(data.date.toDate(), 'yyyy-MM-dd');
+    } else if (data?.date instanceof Date) {
+      dateKey = format(data.date, 'yyyy-MM-dd');
+    } else if (data?.completedAt?.toDate) {
+      dateKey = format(data.completedAt.toDate(), 'yyyy-MM-dd');
+    }
+    if (!dateKey) return;
+    
+    // Tarih kontrolü: görevin atandığı tarih ay içinde mi?
+    if (!dateKeys.includes(dateKey)) return;
+
+    const rawTaskId: string | undefined = data?.taskDefId || data?.taskId;
+    let taskDefId: string | undefined = rawTaskId;
+    if (rawTaskId && !dailyDefIds.has(rawTaskId)) {
+      const parts = rawTaskId.split('_');
+      for (const p of parts) {
+        if (dailyDefIds.has(p)) { taskDefId = p; break; }
+      }
+    }
+    if (!taskDefId || !dailyDefIds.has(taskDefId)) return;
+
+    if (!byUser[userId]) byUser[userId] = {};
+    byUser[userId][dateKey] = (byUser[userId][dateKey] || 0) + 1;
+  });
+
+  const involvedUserIds = Object.keys(byUser);
+  if (involvedUserIds.length === 0) {
+    return { start, end, daysInRange, taskCount: N, items: [] };
+  }
+
+  // İsim cache
+  if (!globalAny.__user_name_cache) globalAny.__user_name_cache = { map: new Map<string, { name: string; exp: number }>() };
+  const nameCache: Map<string, { name: string; exp: number }> = globalAny.__user_name_cache.map;
+  const nowTs = Date.now();
+  const idToName: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const uid of involvedUserIds) {
+    const hit = nameCache.get(uid);
+    if (hit && hit.exp > nowTs) {
+      idToName[uid] = hit.name;
+    } else {
+      missing.push(uid);
+    }
+  }
+  if (missing.length > 0) {
+    const fetched = await getUsersByIds(missing).catch(() => [] as User[]);
+    fetched.forEach(u => {
+      const nm = u.displayName || u.fullName || u.email || u.id;
+      idToName[u.id] = nm;
+      nameCache.set(u.id, { name: nm, exp: nowTs + 30 * 60 * 1000 });
+    });
+  }
+
+  // Puanlama: Her görev 100/N puan, aylık toplam hesapla
+  const perTaskPoint = 100 / N;
+  const items = involvedUserIds
+    .map(userId => {
+      const dayCounts = byUser[userId];
+      let completedCount = 0;
+      let fullDays = 0;
+      
+      // Her gün için kontrol et
+      Object.values(dayCounts).forEach(c => {
+        completedCount += c;
+        // Bir günde tüm günlük vazifeler tamamlanmışsa tam gün sayılır
+        if (c >= N) fullDays += 1;
+      });
+      
+      // Aylık toplam puan: tamamlanan vazife sayısı * vazife başına puan
+      const rawPoints = completedCount * perTaskPoint;
+      const points = Math.round(rawPoints * 100) / 100;
+      
+      return {
+        userId,
+        displayName: idToName[userId] || userId,
+        points,
+        fullDays,
+        completedCount,
+      };
+    })
+    .filter(item => item.completedCount > 0)
+    .sort((a, b) => (
+      b.points - a.points || b.fullDays - a.fullDays || b.completedCount - a.completedCount
+    ));
+
+  return { start, end, daysInRange, taskCount: N, items };
 }
 
 // Aktif günlük vazifeleri basit liste olarak getir
@@ -526,33 +794,65 @@ export async function getWeeklyTaskLeaderboard(taskDefId: string, referenceDate?
   const today = new Date();
   const base = referenceDate ? new Date(referenceDate) : today;
   const weekStart = startOfWeek(base, { weekStartsOn: 1 });
-  const endCandidate = endOfWeek(base, { weekStartsOn: 1 });
-  const isCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }).getTime() === weekStart.getTime();
-  const weekEnd = isCurrentWeek ? (today < endCandidate ? today : endCandidate) : endCandidate;
+  const weekEnd = endOfWeek(base, { weekStartsOn: 1 });
 
   const start = new Date(weekStart);
   start.setHours(0, 0, 0, 0);
   const end = new Date(weekEnd);
   end.setHours(23, 59, 59, 999);
 
+  // Hafta içi + 3 gün sonrasına kadar (geç tamamlananlar için)
+  const queryEnd = new Date(end);
+  queryEnd.setDate(queryEnd.getDate() + 3);
+  queryEnd.setHours(23, 59, 59, 999);
+
+  // Haftanın günleri
+  const dateKeys: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dateKeys.push(format(cursor, 'yyyy-MM-dd'));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
   const tsSnap = await getDocs(query(
     collection(db, 'userTaskStatuses'),
     where('status', '==', 'completed'),
     where('completedAt', '>=', Timestamp.fromDate(start)),
-    where('completedAt', '<=', Timestamp.fromDate(end))
+    where('completedAt', '<=', Timestamp.fromDate(queryEnd))
   ));
 
-  const byUser: Record<string, number> = {};
+  // GÜN BAZINDA say - bir gün için max 1 kere
+  const byUser: Record<string, Set<string>> = {}; // userId -> Set of dates
   tsSnap.forEach(s => {
     const data: any = s.data();
     const uid: string | undefined = data?.userId;
     if (!uid) return;
+    
     const raw = data?.taskDefId || data?.taskId;
     if (!raw) return;
     let matched = false;
-    if (raw === taskDefId) matched = true; else if (typeof raw === 'string') matched = raw.split('_').includes(taskDefId);
+    if (raw === taskDefId) matched = true; 
+    else if (typeof raw === 'string') matched = raw.split('_').includes(taskDefId);
     if (!matched) return;
-    byUser[uid] = (byUser[uid] || 0) + 1;
+
+    // Görevin ATANDIĞI tarihe bak (date field)
+    let dateKey: string | undefined;
+    if (typeof data?.date === 'string') {
+      dateKey = data.date;
+    } else if (data?.date?.toDate) {
+      dateKey = format(data.date.toDate(), 'yyyy-MM-dd');
+    } else if (data?.date instanceof Date) {
+      dateKey = format(data.date, 'yyyy-MM-dd');
+    } else if (data?.completedAt?.toDate) {
+      dateKey = format(data.completedAt.toDate(), 'yyyy-MM-dd');
+    }
+    if (!dateKey) return;
+    
+    // Sadece hafta içindeki günlere atanan görevleri say
+    if (!dateKeys.includes(dateKey)) return;
+
+    if (!byUser[uid]) byUser[uid] = new Set();
+    byUser[uid].add(dateKey); // Her gün max 1 kere
   });
 
   const involved = Object.keys(byUser);
@@ -575,11 +875,11 @@ export async function getWeeklyTaskLeaderboard(taskDefId: string, referenceDate?
     });
   }
 
-  const daysInRange = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+  const daysInRange = dateKeys.length;
   const items = involved
     .map(uid => {
-      const completedDays = byUser[uid] || 0;
-      const points = completedDays * 100; // per-task: 1 gün = 100 puan
+      const completedDays = byUser[uid].size; // Kaç farklı gün tamamlamış
+      const points = completedDays * 100; // Her gün 100 puan, max 700
       return {
         userId: uid,
         displayName: idToName[uid] || uid,
@@ -592,4 +892,208 @@ export async function getWeeklyTaskLeaderboard(taskDefId: string, referenceDate?
     .sort((a, b) => b.points - a.points || b.completedCount - a.completedCount);
 
   return { start, end, daysInRange, items };
+}
+
+// DEBUG: Belirli bir kullanıcının belirli bir hafta için detaylı analiz (gelecekte lazım olabilir)
+// Export kaldırıldı - gerektiğinde tekrar export edilebilir
+async function debugWeeklyUserData(userId: string, weekStartDate: Date): Promise<{
+  weekInfo: { start: Date; end: Date; dateKeys: string[] };
+  activeTaskDefs: Array<{ id: string; title: string }>;
+  userCompletions: Array<{
+    id: string;
+    taskId: string;
+    taskDefId?: string;
+    dateKey?: string;
+    completedAt?: string;
+    status: string;
+    matchedDefId?: string;
+    isInWeek: boolean;
+    isDailyTask: boolean;
+  }>;
+  summary: {
+    totalActiveDailyTasks: number;
+    completedTasksInWeek: number;
+    completedByDay: Record<string, number>;
+    fullDays: number;
+    expectedPoints: number;
+    calculatedPoints: number;
+  };
+}> {
+  const weekStart = startOfWeek(weekStartDate, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(weekStartDate, { weekStartsOn: 1 });
+
+  const start = new Date(weekStart);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(weekEnd);
+  end.setHours(23, 59, 59, 999);
+
+  const dateKeys: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dateKeys.push(format(cursor, 'yyyy-MM-dd'));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  console.log('🔍 [DEBUG] === HAFTALIK ANALİZ DEBUG ===');
+  console.log('📅 Hafta:', format(start, 'dd.MM.yyyy') + ' - ' + format(end, 'dd.MM.yyyy'));
+  console.log('📅 Günler:', dateKeys);
+  console.log('👤 Kullanıcı:', userId);
+  console.log('');
+
+  // 1. Aktif günlük vazife tanımlarını al
+  const defsSnap = await getDocs(query(
+    collection(db, 'taskDefinitions'),
+    where('isActive', '==', true),
+    where('category', '==', 'daily')
+  ));
+  const dailyDefIds = new Set<string>();
+  const activeTaskDefs: Array<{ id: string; title: string }> = [];
+  defsSnap.forEach(d => {
+    dailyDefIds.add(d.id);
+    const data: any = d.data();
+    activeTaskDefs.push({ id: d.id, title: data?.title || d.id });
+  });
+  const N = dailyDefIds.size;
+
+  console.log('📋 Aktif Günlük Vazifeler (N=' + N + '):');
+  activeTaskDefs.forEach(t => console.log('  - ' + t.title + ' (ID: ' + t.id + ')'));
+  console.log('');
+
+  // 2. Kullanıcının tamamlanan görevlerini al
+  const statusesSnap = await getDocs(query(
+    collection(db, 'userTaskStatuses'),
+    where('userId', '==', userId),
+    where('status', '==', 'completed')
+  ));
+
+  const userCompletions: Array<{
+    id: string;
+    taskId: string;
+    taskDefId?: string;
+    dateKey?: string;
+    completedAt?: string;
+    status: string;
+    matchedDefId?: string;
+    isInWeek: boolean;
+    isDailyTask: boolean;
+  }> = [];
+
+  const completedByDay: Record<string, number> = {};
+  dateKeys.forEach(k => completedByDay[k] = 0);
+
+  statusesSnap.forEach(s => {
+    const data: any = s.data();
+    const taskId = data?.taskId;
+    const status = data?.status;
+
+    // Tarih bilgisini al
+    let dateKey: string | undefined;
+    if (typeof data?.date === 'string') {
+      dateKey = data.date;
+    } else if (data?.date?.toDate) {
+      dateKey = format(data.date.toDate(), 'yyyy-MM-dd');
+    } else if (data?.date instanceof Date) {
+      dateKey = format(data.date, 'yyyy-MM-dd');
+    } else if (data?.completedAt?.toDate) {
+      dateKey = format(data.completedAt.toDate(), 'yyyy-MM-dd');
+    }
+
+    const completedAtStr = data?.completedAt?.toDate ? format(data.completedAt.toDate(), 'dd.MM.yyyy HH:mm') : 'N/A';
+    const isInWeek = dateKey ? dateKeys.includes(dateKey) : false;
+
+    // TaskDefId'yi bul
+    const rawTaskId: string | undefined = data?.taskDefId || data?.taskId;
+    let matchedDefId: string | undefined = rawTaskId;
+    if (rawTaskId && !dailyDefIds.has(rawTaskId)) {
+      const parts = rawTaskId.split('_');
+      for (const p of parts) {
+        if (dailyDefIds.has(p)) { matchedDefId = p; break; }
+      }
+    }
+    const isDailyTask = matchedDefId ? dailyDefIds.has(matchedDefId) : false;
+
+    userCompletions.push({
+      id: s.id,
+      taskId,
+      taskDefId: data?.taskDefId,
+      dateKey,
+      completedAt: completedAtStr,
+      status,
+      matchedDefId,
+      isInWeek,
+      isDailyTask,
+    });
+
+    // Hafta içinde ve günlük vazife ise say
+    if (isInWeek && isDailyTask && dateKey) {
+      completedByDay[dateKey] = (completedByDay[dateKey] || 0) + 1;
+    }
+  });
+
+  console.log('✅ Kullanıcının Tamamlanan Görevleri (Tümü):');
+  console.log('   Toplam:', userCompletions.length);
+  console.log('');
+
+  console.log('🎯 HAFTA İÇİNDEKİ GÜNLÜK VAZİFELER:');
+  const inWeekDailyTasks = userCompletions.filter(c => c.isInWeek && c.isDailyTask);
+  if (inWeekDailyTasks.length === 0) {
+    console.log('   ❌ Hafta içinde tamamlanan günlük vazife YOK!');
+  } else {
+    inWeekDailyTasks.forEach(c => {
+      const taskDef = activeTaskDefs.find(t => t.id === c.matchedDefId);
+      console.log('   ✓ ' + (taskDef?.title || c.matchedDefId) + ' - ' + c.dateKey + ' - ' + c.completedAt);
+    });
+  }
+  console.log('');
+
+  console.log('📊 GÜNLERE GÖRE DAĞILIM:');
+  Object.keys(completedByDay).sort().forEach(day => {
+    const count = completedByDay[day];
+    const isFull = count >= N;
+    console.log('   ' + day + ': ' + count + '/' + N + (isFull ? ' ✓ TAM GÜN' : ''));
+  });
+  console.log('');
+
+  // Hesaplama
+  const completedTasksInWeek = inWeekDailyTasks.length;
+  const fullDays = Object.values(completedByDay).filter(c => c >= N).length;
+  const perTaskPoint = 100 / N;
+  const calculatedPoints = Math.round(completedTasksInWeek * perTaskPoint * 100) / 100;
+
+  console.log('💯 PUAN HESAPLAMA:');
+  console.log('   Aktif Günlük Vazife Sayısı (N): ' + N);
+  console.log('   Vazife Başına Puan: ' + perTaskPoint.toFixed(2));
+  console.log('   Tamamlanan Vazife: ' + completedTasksInWeek);
+  console.log('   Tam Gün Sayısı: ' + fullDays + '/7');
+  console.log('   HESAPLANAN PUAN: ' + calculatedPoints);
+  console.log('');
+
+  console.log('🔍 HAFTA DIŞI VEYA DİĞER GÖREVLER:');
+  const otherTasks = userCompletions.filter(c => !c.isInWeek || !c.isDailyTask);
+  if (otherTasks.length === 0) {
+    console.log('   Yok');
+  } else {
+    otherTasks.slice(0, 10).forEach(c => {
+      console.log('   - TaskId: ' + c.taskId + ' | Tarih: ' + (c.dateKey || 'N/A') + ' | Hafta İçi: ' + c.isInWeek + ' | Günlük: ' + c.isDailyTask);
+    });
+    if (otherTasks.length > 10) {
+      console.log('   ... ve ' + (otherTasks.length - 10) + ' tane daha');
+    }
+  }
+  console.log('');
+  console.log('=== DEBUG BİTİŞ ===');
+
+  return {
+    weekInfo: { start, end, dateKeys },
+    activeTaskDefs,
+    userCompletions,
+    summary: {
+      totalActiveDailyTasks: N,
+      completedTasksInWeek,
+      completedByDay,
+      fullDays,
+      expectedPoints: calculatedPoints,
+      calculatedPoints,
+    },
+  };
 }

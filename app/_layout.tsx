@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Colors from '../constants/Colors';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { ThemeProvider } from '../context/ThemeContext';
 import { rescheduleDailyIfNeeded } from '../services/DailyRescheduler';
 import { initialize as initNotifications } from '../services/NotificationService';
 import { initializeUserStatus, updateLastSeen, updateUserStatus } from '../services/UserStatusService';
@@ -139,6 +140,22 @@ export default function RootLayout() {
                   headerShown: false,
                 }}
               />
+              
+              {/* Contacts ekranları */}
+              <Stack.Screen
+                name="contacts/index"
+                options={{
+                  headerShown: false,
+                  presentation: 'card',
+                }}
+              />
+              <Stack.Screen
+                name="contacts/[id]"
+                options={{
+                  headerShown: false,
+                  presentation: 'card',
+                }}
+              />
             </Stack>
           </View>
         </SafeAreaProvider>
@@ -148,9 +165,11 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-        <AuthGate />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthGate />
+        </AuthProvider>
+      </ThemeProvider>
     </GestureHandlerRootView>
   );
 }

@@ -4,11 +4,11 @@ import { tr } from 'date-fns/locale';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
 import Header from '../components/Header';
 import Colors from '../constants/Colors';
 import { useAuth } from '../context/AuthContext';
-import { getActiveDailyTasks, getCategoryCompletionSummary, getLast7DaysCompletion, getLast7DaysDebug, getWeeklyLeaderboard, getWeeklyTaskCompletionSummaryV2, getWeeklyTaskLeaderboard } from '../services/TaskAnalysisService';
+import { getActiveDailyTasks, getCategoryCompletionSummary, getLast7DaysCompletion, getLast7DaysDebug, getMonthlyLeaderboard, getWeeklyLeaderboard, getWeeklyTaskCompletionSummaryV2, getWeeklyTaskLeaderboard } from '../services/TaskAnalysisService';
 
 // Yeni renk paleti
 const newColors = {
@@ -33,29 +33,6 @@ const mockAnalytics = {
   streak: 5,
   last7Days: [2, 3, 1, 4, 0, 5, 2],
 };
-const analyticsCards = [
-  {
-    key: 'daily',
-    title: 'Günlük Vazifeler',
-    icon: 'sunny',
-    colors: newColors.primary,
-    ...mockAnalytics.daily,
-  },
-  {
-    key: 'weekly',
-    title: 'Haftalık Vazifeler',
-    icon: 'calendar',
-    colors: newColors.secondary,
-    ...mockAnalytics.weekly,
-  },
-  {
-    key: 'monthly',
-    title: 'Aylık Vazifeler',
-    icon: 'moon',
-    colors: newColors.purple,
-    ...mockAnalytics.monthly,
-  },
-];
 const mockDailyStats = {
   total: 10,
   completed: 7,
@@ -159,7 +136,7 @@ const mockTaskPerformance = [
 export default function AnalyticsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const [tab, setTab] = useState<'genel' | 'gunluk' | 'detay' | 'siralama'>('genel');
+  const [tab, setTab] = useState<'genel' | 'haftalikSiralama' | 'aylikSiralama'>('genel');
   const router = useRouter();
   const days = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
   const { user } = useAuth();
@@ -169,6 +146,8 @@ export default function AnalyticsScreen() {
   const [categorySummary, setCategorySummary] = useState<{ daily: { total: number; completed: number }; weekly: { total: number; completed: number }; monthly: { total: number; completed: number } } | null>(null);
   const [leaderboard, setLeaderboard] = useState<{ start: Date; end: Date; daysInRange: number; items: Array<{ userId: string; displayName: string; points: number; fullDays: number; completedCount: number; }>; } | null>(null);
   const [leaderboardRef, setLeaderboardRef] = useState<Date | null>(null);
+  const [monthlyLeaderboard, setMonthlyLeaderboard] = useState<{ start: Date; end: Date; daysInRange: number; taskCount: number; items: Array<{ userId: string; displayName: string; points: number; fullDays: number; completedCount: number; }>; } | null>(null);
+  const [monthlyLeaderboardRef, setMonthlyLeaderboardRef] = useState<Date | null>(null);
   const [lbMode, setLbMode] = useState<'haftalik' | 'vazife'>('haftalik');
   const [tasks, setTasks] = useState<Array<{ id: string; title: string }>>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -211,17 +190,19 @@ export default function AnalyticsScreen() {
       setLoading(true);
       const t0 = Date.now();
       if (user) {
-        const [summary, last7, cats, debug, lb] = await Promise.all([
+        const [summary, last7, cats, debug, lb, mlb] = await Promise.all([
           getWeeklyTaskCompletionSummaryV2(user.uid),
           getLast7DaysCompletion(user.uid),
           getCategoryCompletionSummary(user.uid),
           getLast7DaysDebug(user.uid),
           getWeeklyLeaderboard(leaderboardRef || undefined),
+          getMonthlyLeaderboard(monthlyLeaderboardRef || undefined),
         ]);
         setWeeklySummary(summary);
         setLast7Days(last7 || []);
         setCategorySummary(cats);
         setLeaderboard(lb);
+        setMonthlyLeaderboard(mlb);
         try { if (ANALYTICS_DEBUG) console.log('[UI] leaderboard length', lb?.items.length || 0, 'ms', Date.now() - t0); } catch {}
         try {
           if (ANALYTICS_DEBUG) {
@@ -237,13 +218,14 @@ export default function AnalyticsScreen() {
       setLast7Days([]);
       setCategorySummary({ daily: { total: 0, completed: 0 }, weekly: { total: 0, completed: 0 }, monthly: { total: 0, completed: 0 } });
       setLeaderboard({ start: new Date(), end: new Date(), daysInRange: 0, items: [] });
+      setMonthlyLeaderboard({ start: new Date(), end: new Date(), daysInRange: 0, taskCount: 0, items: [] });
     } finally {
       setLoading(false);
     }
   };
 
-  // Minimal timing logger for leaderboard fetches when Sıralamalar açık
-  const loadLeaderboardForRef = async (ref?: Date) => {
+  // Minimal timing logger for leaderboard fetches when Haftalık sıralama açık
+  const loadWeeklyLeaderboardForRef = async (ref?: Date) => {
     try {
       const base = ref || leaderboardRef || undefined;
       if (lbMode === 'haftalik') {
@@ -258,14 +240,24 @@ export default function AnalyticsScreen() {
     }
   };
 
+  const loadMonthlyLeaderboardForRef = async (ref?: Date) => {
+    try {
+      const base = ref || monthlyLeaderboardRef || undefined;
+      const lb = await getMonthlyLeaderboard(base);
+      setMonthlyLeaderboard(lb);
+    } catch (e) {
+      // no-op
+    }
+  };
+
   const weeklyPercent = weeklySummary ? Math.round((weeklySummary.completed / Math.max(weeklySummary.total, 1)) * 100) : 0;
 
   const handlePrevWeek = () => {
     const base = leaderboard?.start ? new Date(leaderboard.start) : new Date();
     base.setDate(base.getDate() - 7);
     setLeaderboardRef(base);
-    if (tab === 'siralama') {
-      loadLeaderboardForRef(base);
+    if (tab === 'haftalikSiralama') {
+      loadWeeklyLeaderboardForRef(base);
     }
   };
 
@@ -273,23 +265,50 @@ export default function AnalyticsScreen() {
     const base = leaderboard?.start ? new Date(leaderboard.start) : new Date();
     base.setDate(base.getDate() + 7);
     setLeaderboardRef(base);
-    if (tab === 'siralama') {
-      loadLeaderboardForRef(base);
+    if (tab === 'haftalikSiralama') {
+      loadWeeklyLeaderboardForRef(base);
+    }
+  };
+
+  const handlePrevMonth = () => {
+    const base = monthlyLeaderboard?.start ? new Date(monthlyLeaderboard.start) : new Date();
+    base.setMonth(base.getMonth() - 1);
+    setMonthlyLeaderboardRef(base);
+    if (tab === 'aylikSiralama') {
+      loadMonthlyLeaderboardForRef(base);
+    }
+  };
+
+  const handleNextMonth = () => {
+    const base = monthlyLeaderboard?.start ? new Date(monthlyLeaderboard.start) : new Date();
+    base.setMonth(base.getMonth() + 1);
+    setMonthlyLeaderboardRef(base);
+    if (tab === 'aylikSiralama') {
+      loadMonthlyLeaderboardForRef(base);
     }
   };
 
   // When Sıralamalar tab opens, fetch leaderboard and log only duration
   useEffect(() => {
-    if (tab === 'siralama') {
-      loadLeaderboardForRef(leaderboardRef || undefined);
+    if (tab === 'haftalikSiralama') {
+      loadWeeklyLeaderboardForRef(leaderboardRef || undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Vazife değiştiğinde ilgili lider board'u yükle
   useEffect(() => {
-    if (tab === 'siralama' && lbMode === 'vazife' && selectedTaskId) {
-      loadLeaderboardForRef(leaderboardRef || undefined);
+    if (tab === 'aylikSiralama') {
+      loadMonthlyLeaderboardForRef(monthlyLeaderboardRef || undefined);
+    }
+    if (tab === 'haftalikSiralama') {
+      loadWeeklyLeaderboardForRef(leaderboardRef || undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, monthlyLeaderboardRef]);
+
+  useEffect(() => {
+    if (tab === 'haftalikSiralama' && lbMode === 'vazife' && selectedTaskId) {
+      loadWeeklyLeaderboardForRef(leaderboardRef || undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lbMode, selectedTaskId]);
@@ -348,7 +367,7 @@ export default function AnalyticsScreen() {
         leftButton={<Ionicons name="arrow-back" size={24} color="#FFF" />}
         onLeftButtonPress={() => router.back()}
         rightButton={<Ionicons name="trophy" size={22} color="#FFF" />}
-        onRightButtonPress={() => setTab('siralama')}
+        onRightButtonPress={() => setTab('haftalikSiralama')}
       />
       {/* Yeni Tab Bar */}
       <View style={[styles.tabBar, { backgroundColor: theme.surface }] }>
@@ -360,18 +379,18 @@ export default function AnalyticsScreen() {
           <Text style={[styles.tabText, { color: theme.text }, tab === 'genel' && styles.tabTextActive]}>Genel</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, { borderColor: theme.border }, tab === 'gunluk' && [styles.tabActive, { backgroundColor: theme.card }]]} 
-          onPress={() => Alert.alert('Bilgi', 'Günlük sekmesi yapım aşamasında')}
+          style={[styles.tab, { borderColor: theme.border }, tab === 'haftalikSiralama' && [styles.tabActive, { backgroundColor: theme.card }]]} 
+          onPress={() => setTab('haftalikSiralama')}
         >
-          <Ionicons name="calendar" size={20} color={tab === 'gunluk' ? newColors.secondary[0] : theme.textDim} />
-          <Text style={[styles.tabText, { color: theme.text }, tab === 'gunluk' && styles.tabTextActive]}>Günlük</Text>
+          <Ionicons name="trophy" size={20} color={tab === 'haftalikSiralama' ? newColors.secondary[0] : theme.textDim} />
+          <Text style={[styles.tabText, { color: theme.text }, tab === 'haftalikSiralama' && styles.tabTextActive]}>Haftalık</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, { borderColor: theme.border }, tab === 'detay' && [styles.tabActive, { backgroundColor: theme.card }]]} 
-          onPress={() => Alert.alert('Bilgi', 'Detay sekmesi yapım aşamasında')}
+          style={[styles.tab, { borderColor: theme.border }, tab === 'aylikSiralama' && [styles.tabActive, { backgroundColor: theme.card }]]} 
+          onPress={() => setTab('aylikSiralama')}
         >
-          <Ionicons name="analytics" size={20} color={tab === 'detay' ? newColors.purple[0] : theme.textDim} />
-          <Text style={[styles.tabText, { color: theme.text }, tab === 'detay' && styles.tabTextActive]}>Detay</Text>
+          <Ionicons name="calendar" size={20} color={tab === 'aylikSiralama' ? newColors.purple[0] : theme.textDim} />
+          <Text style={[styles.tabText, { color: theme.text }, tab === 'aylikSiralama' && styles.tabTextActive]}>Aylık</Text>
         </TouchableOpacity>
       </View>
 
@@ -379,7 +398,6 @@ export default function AnalyticsScreen() {
         {tab === 'genel' ? (
           <>
             <Text style={[styles.title, { color: theme.text }]}>Genel Vazife Analizi</Text>
-            {/* Genel başarı ve toplam */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18 }}>
               <View style={{ flex: 1, alignItems: 'center', marginRight: 8, backgroundColor: theme.surface, borderRadius: 16, padding: 16, elevation: 1 }}>
           <Ionicons name="checkmark-done-circle" size={28} color={newColors.success[0]} style={{ marginBottom: 4 }} />
@@ -394,9 +412,8 @@ export default function AnalyticsScreen() {
                 <Text style={{ color: theme.textDim, fontSize: 13 }}>Haftalık Başarı</Text>
               </View>
             </View>
-            {/* Son 7 gün grafiği */}
               <View style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 16, marginBottom: 18 }}>
-              <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: 15, marginBottom: 10, zIndex: 1 }}>Son 7 Gün</Text>
+              <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: 15, marginBottom: 10, zIndex: 1 }}>Bu Hafta (Pzt-Bugün)</Text>
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 80 }}>
                 {(last7Days.length ? last7Days : Array(7).fill(0)).map((val, idx) => (
                   <View key={idx} style={{ alignItems: 'center', flex: 1 }}>
@@ -406,7 +423,6 @@ export default function AnalyticsScreen() {
                 ))}
               </View>
             </View>
-            {/* Kategori kartları */}
             {(() => {
               const cards = categorySummary ? [
                 { key: 'daily', title: 'Günlük Vazifeler', icon: 'sunny', colors: newColors.primary, total: categorySummary.daily.total, completed: categorySummary.daily.completed },
@@ -424,315 +440,7 @@ export default function AnalyticsScreen() {
               );
             })()}
           </>
-        ) : tab === 'gunluk' ? (
-          <>
-            <Text style={[styles.title, { color: theme.text }]}>Günlük Vazife İstatistikleri</Text>
-            
-            {/* Haftalık Tamamlanma Oranı */}
-            <View style={styles.weeklyCompletionContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Son 7 Gün Tamamlanma Oranı</Text>
-              <View style={styles.weeklyCompletionContent}>
-                {(() => {
-                  const dailyTotal = categorySummary?.daily.total || 0;
-                  const start = new Date();
-                  start.setDate(start.getDate() - 6);
-                  start.setHours(0, 0, 0, 0);
-                  const items = Array.from({ length: 7 }).map((_, i) => {
-                    const d = new Date(start);
-                    d.setDate(start.getDate() + i);
-                    return {
-                      date: format(d, 'd', { locale: tr }),
-                      day: format(d, 'EEE', { locale: tr }),
-                      completed: last7Days[i] || 0,
-                      total: dailyTotal,
-                    };
-                  });
-                  const getColors = (rate: number) => {
-                    if (rate >= 80) return newColors.success;
-                    if (rate >= 60) return newColors.accent;
-                    return newColors.primary;
-                  };
-                  const getColorText = (rate: number) => {
-                    if (rate >= 80) return newColors.success[0];
-                    if (rate >= 60) return newColors.accent[0];
-                    return newColors.primary[0];
-                  };
-                  return items.map((item, idx) => {
-                    const completionRate = item.total > 0 ? (item.completed / item.total) * 100 : 0;
-                    return (
-                      <View key={idx} style={styles.weeklyCompletionItem}>
-                        <View style={styles.weeklyCompletionBar}>
-                          <LinearGradient
-                            colors={getColors(completionRate)}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 0, y: 1 }}
-                            style={[
-                              styles.weeklyCompletionFill,
-                              { height: `${completionRate}%` }
-                            ]}
-                          />
-                        </View>
-                        <View style={styles.weeklyCompletionInfo}>
-                          <Text style={styles.weeklyCompletionDate}>{item.date}</Text>
-                          <Text style={styles.weeklyCompletionDay}>{item.day}</Text>
-                          <Text style={[
-                            styles.weeklyCompletionRate,
-                            { color: getColorText(completionRate) }
-                          ]}>
-                            {Math.round(completionRate)}%
-                          </Text>
-                          <Text style={styles.weeklyCompletionCount}>
-                            {item.completed}/{item.total}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  });
-                })()}
-              </View>
-              <View style={styles.weeklyCompletionLegend}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: newColors.success[0] }]} />
-                  <Text style={styles.legendText}>%80+ Başarı</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: newColors.accent[0] }]} />
-                  <Text style={styles.legendText}>%60-80 Başarı</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: newColors.primary[0] }]} />
-                  <Text style={styles.legendText}>%60 Altı</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Haftalık Karşılaştırma */}
-            <View style={styles.weeklyComparisonContainer}>
-              <Text style={styles.sectionTitle}>Haftalık Karşılaştırma</Text>
-              <View style={styles.weeklyComparisonContent}>
-                {['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map((day, idx) => (
-                  <View key={day} style={styles.weeklyComparisonDay}>
-                    <View style={styles.weeklyComparisonBars}>
-                      <View style={[styles.weeklyComparisonBar, { 
-                        height: mockWeeklyComparison.thisWeek[idx] * 10,
-                        backgroundColor: newColors.primary[0]
-                      }]} />
-                      <View style={[styles.weeklyComparisonBar, { 
-                        height: mockWeeklyComparison.lastWeek[idx] * 10,
-                        backgroundColor: newColors.secondary[0],
-                        opacity: 0.7
-                      }]} />
-                    </View>
-                    <Text style={styles.weeklyComparisonLabel}>{day}</Text>
-                  </View>
-                ))}
-              </View>
-              <View style={styles.weeklyComparisonLegend}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: newColors.primary[0] }]} />
-                  <Text style={styles.legendText}>Bu Hafta</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: newColors.secondary[0] }]} />
-                  <Text style={styles.legendText}>Geçen Hafta</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Vazife Performans Grafiği */}
-            <View style={styles.taskPerformanceContainer}>
-              <Text style={styles.sectionTitle}>Son 10 Gün Vazife Performansı</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.taskPerformanceScroll}>
-                <View style={styles.taskPerformanceContent}>
-                  {mockTaskPerformance.map((task, idx) => {
-                    const completionRate = (task.last10Days.filter(day => day === 1).length / 10) * 100;
-                    return (
-                      <View key={idx} style={styles.taskPerformanceCard}>
-                        <View style={styles.taskPerformanceHeader}>
-                          <Ionicons name={task.icon as any} size={24} color={task.color[0]} />
-                          <Text style={styles.taskPerformanceTitle}>{task.task}</Text>
-                        </View>
-                        <View style={styles.taskPerformanceDays}>
-                          {task.last10Days.map((day, dayIdx) => (
-                            <View 
-                              key={dayIdx} 
-                              style={[
-                                styles.taskPerformanceDay,
-                                { backgroundColor: day === 1 ? task.color[0] : '#F0F0F0' }
-                              ]} 
-                            />
-                          ))}
-                        </View>
-                        <View style={styles.taskPerformanceStats}>
-                          <View style={styles.taskPerformanceStat}>
-                            <Text style={styles.taskPerformanceStatValue}>
-                              {task.last10Days.filter(day => day === 1).length}/10
-                            </Text>
-                            <Text style={styles.taskPerformanceStatLabel}>Tamamlanan</Text>
-                          </View>
-                          <View style={styles.taskPerformanceStat}>
-                            <Text style={[styles.taskPerformanceStatValue, { color: task.color[0] }]}>
-                              {completionRate}%
-                            </Text>
-                            <Text style={styles.taskPerformanceStatLabel}>Başarı</Text>
-                          </View>
-                          <View style={styles.taskPerformanceStat}>
-                            <Text style={styles.taskPerformanceStatValue}>
-                              {task.streak} gün
-                            </Text>
-                            <Text style={styles.taskPerformanceStatLabel}>Streak</Text>
-                          </View>
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              </ScrollView>
-            </View>
-
-            {/* Mini Takvim */}
-            <View style={styles.miniCalendarContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Son 7 Gün</Text>
-              <View style={styles.miniCalendar}>
-                {(() => {
-                  const start = new Date();
-                  start.setDate(start.getDate() - 6);
-                  start.setHours(0, 0, 0, 0);
-                  return Array.from({ length: 7 }).map((_, idx) => {
-                    const d = new Date(start);
-                    d.setDate(start.getDate() + idx);
-                    const count = last7Days[idx] || 0;
-                    const active = count > 0;
-                    return (
-                      <View key={idx} style={styles.miniCalendarDay}>
-                        <Text style={styles.miniCalendarDate}>{format(d, 'd', { locale: tr })}</Text>
-                        <View style={[
-                          styles.miniCalendarDot,
-                          { backgroundColor: active ? newColors.success[0] : '#E0E0E0' }
-                        ]} />
-                        <Text style={styles.miniCalendarLabel}>{format(d, 'EEE', { locale: tr })}</Text>
-                      </View>
-                    );
-                  });
-                })()}
-              </View>
-            </View>
-
-            {/* Genel başarı oranı */}
-            <View style={styles.cardRow}>
-              <LinearGradient colors={newColors.success} style={[styles.statCard, { padding: 16 }]}> 
-                <Ionicons name="checkmark-done-circle" size={28} color="#fff" style={{ marginBottom: 4 }} />
-                <Text style={[styles.statValue, { color: '#fff' }]}>{mockDailyStats.completed} / {mockDailyStats.total}</Text>
-                <Text style={[styles.statLabel, { color: '#fff', opacity: 0.9 }]}>Tamamlanan</Text>
-              </LinearGradient>
-              <LinearGradient colors={newColors.accent} style={[styles.statCard, { padding: 16 }]}> 
-                <Ionicons name="trending-up" size={28} color="#fff" style={{ marginBottom: 4 }} />
-                <Text style={[styles.statValue, { color: '#fff' }]}>{mockDailyStats.successRate}%</Text>
-                <Text style={[styles.statLabel, { color: '#fff', opacity: 0.9 }]}>Başarı Oranı</Text>
-              </LinearGradient>
-            </View>
-            {/* En başarılı, en başarısız, streak, en az yapılan */}
-            <View style={styles.cardRow}>
-              <LinearGradient colors={mockDailyStats.bestTask.color} style={styles.detailCard}>
-                <Ionicons name={mockDailyStats.bestTask.icon as any} size={24} color="#fff" style={{ marginBottom: 4 }} />
-                <Text style={styles.detailTitle}>En Başarılı</Text>
-                <Text style={styles.detailValue}>{mockDailyStats.bestTask.title}</Text>
-                <Text style={styles.detailSub}>{mockDailyStats.bestTask.completed} kez</Text>
-              </LinearGradient>
-              <LinearGradient colors={mockDailyStats.worstTask.color} style={styles.detailCard}>
-                <Ionicons name={mockDailyStats.worstTask.icon as any} size={24} color="#fff" style={{ marginBottom: 4 }} />
-                <Text style={styles.detailTitle}>En Başarısız</Text>
-                <Text style={styles.detailValue}>{mockDailyStats.worstTask.title}</Text>
-                <Text style={styles.detailSub}>{mockDailyStats.worstTask.completed} kez</Text>
-              </LinearGradient>
-            </View>
-            <View style={styles.cardRow}>
-              <LinearGradient colors={mockDailyStats.streakTask.color} style={styles.detailCard}>
-                <Ionicons name={mockDailyStats.streakTask.icon as any} size={24} color="#fff" style={{ marginBottom: 4 }} />
-                <Text style={styles.detailTitle}>En Çok Üst Üste</Text>
-                <Text style={styles.detailValue}>{mockDailyStats.streakTask.title}</Text>
-                <Text style={styles.detailSub}>{mockDailyStats.streakTask.streak} gün</Text>
-              </LinearGradient>
-              <LinearGradient colors={mockDailyStats.leastTask.color} style={styles.detailCard}>
-                <Ionicons name={mockDailyStats.leastTask.icon as any} size={24} color="#fff" style={{ marginBottom: 4 }} />
-                <Text style={styles.detailTitle}>En Az Yapılan</Text>
-                <Text style={styles.detailValue}>{mockDailyStats.leastTask.title}</Text>
-                <Text style={styles.detailSub}>{mockDailyStats.leastTask.completed} kez</Text>
-              </LinearGradient>
-            </View>
-          </>
-        ) : tab === 'detay' ? (
-          <>
-            <Text style={[styles.title, { color: theme.text }]}>Detaylı Alışkanlık Analizi</Text>
-            
-            {/* Isı Haritası */}
-            <View style={styles.heatMapContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Aktivite Isı Haritası</Text>
-              <View style={styles.heatMap}>
-                {Array.from({ length: 30 }).map((_, idx) => (
-                  <View 
-                    key={idx} 
-                    style={[
-                      styles.heatMapDay,
-                      { backgroundColor: `rgba(255, 107, 107, ${Math.random() * 0.8 + 0.2})` }
-                    ]} 
-                  />
-                ))}
-              </View>
-            </View>
-
-            {/* Alışkanlık Zinciri - Yeni Tasarım */}
-            <View style={styles.chainContainer}>
-              <Text style={styles.sectionTitle}>Alışkanlık Zinciri</Text>
-              <View style={styles.chainContent}>
-                <View style={styles.chainProgress}>
-                  <Text style={styles.chainProgressText}>15/21</Text>
-                  <Text style={styles.chainProgressLabel}>Günlük Hedef</Text>
-                </View>
-                <View style={styles.chainGrid}>
-                  {Array.from({ length: 21 }).map((_, idx) => {
-                    const isCompleted = idx < 15;
-                    const isCurrentDay = idx === 15;
-                    return (
-                      <View key={idx} style={styles.chainLinkContainer}>
-                        <View style={[
-                          styles.chainLink,
-                          isCompleted && styles.chainLinkCompleted,
-                          isCurrentDay && styles.chainLinkCurrent,
-                        ]}>
-                          {isCompleted && (
-                            <Ionicons name="checkmark" size={14} color="#fff" />
-                          )}
-                          {isCurrentDay && (
-                            <View style={styles.chainLinkPulse} />
-                          )}
-                        </View>
-                        <Text style={styles.chainLinkDay}>{idx + 1}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-                <View style={styles.chainStats}>
-                  <View style={styles.chainStatItem}>
-                    <Ionicons name="flame" size={20} color={newColors.warning[0]} />
-                    <Text style={styles.chainStatValue}>15</Text>
-                    <Text style={styles.chainStatLabel}>Günlük Streak</Text>
-                  </View>
-                  <View style={styles.chainStatItem}>
-                    <Ionicons name="trending-up" size={20} color={newColors.success[0]} />
-                    <Text style={styles.chainStatValue}>%71</Text>
-                    <Text style={styles.chainStatLabel}>Başarı Oranı</Text>
-                  </View>
-                  <View style={styles.chainStatItem}>
-                    <Ionicons name="trophy" size={20} color={newColors.accent[0]} />
-                    <Text style={styles.chainStatValue}>6</Text>
-                    <Text style={styles.chainStatLabel}>Kalan Gün</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </>
-        ) : (
+        ) : tab === 'haftalikSiralama' ? (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <TouchableOpacity onPress={handlePrevWeek} style={{ padding: 6 }}>
@@ -745,7 +453,6 @@ export default function AnalyticsScreen() {
                 <Ionicons name="chevron-forward" size={22} color={theme.text} />
               </TouchableOpacity>
             </View>
-            {/* Sıralama alt sekmeleri */}
             <View style={{ flexDirection: 'row', backgroundColor: theme.surface, borderRadius: 10, padding: 4, marginBottom: 10 }}>
               <TouchableOpacity onPress={() => { setLbMode('haftalik'); setTaskLeaderboard(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: lbMode==='haftalik' ? theme.card : 'transparent' }}>
                 <Text style={{ fontWeight: '600', color: lbMode==='haftalik' ? theme.text : theme.textDim }}>Haftalık</Text>
@@ -754,7 +461,6 @@ export default function AnalyticsScreen() {
                 <Text style={{ fontWeight: '600', color: lbMode==='vazife' ? theme.text : theme.textDim }}>Vazife Bazlı</Text>
               </TouchableOpacity>
             </View>
-
             {lbMode==='vazife' && (
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
                 <Text style={{ fontWeight: '600', marginRight: 8, color: theme.text }}>Vazife:</Text>
@@ -769,7 +475,6 @@ export default function AnalyticsScreen() {
                 </ScrollView>
               </View>
             )}
-
             <View style={[styles.taskPerformanceContainer, { backgroundColor: theme.surface }] }>
               {(
                 (lbMode==='haftalik' && leaderboard && leaderboard.items.length > 0) ||
@@ -777,7 +482,6 @@ export default function AnalyticsScreen() {
               ) ? (
                 (lbMode==='haftalik' ? (leaderboard?.items || []) : (taskLeaderboard?.items || [])).map((item, idx) => (
                   <View key={item.userId} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-                    {/* Üst satır: sıra + ikon + isim (sol), puan (sağ) */}
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                         <Text style={{ width: 22, textAlign: 'right', fontWeight: 'bold', color: theme.textDim, marginRight: 8 }}>{idx + 1}.</Text>
@@ -788,7 +492,6 @@ export default function AnalyticsScreen() {
                       </View>
                       <Text style={{ fontWeight: '700', color: theme.text, marginLeft: 12 }}>{item.points}</Text>
                     </View>
-                    {/* Alt satır: detay sağda tek satır */}
                     <View style={{ marginTop: 4 }}>
                       <Text style={{ fontSize: 12, color: theme.textDim, textAlign: 'right' }} numberOfLines={1} ellipsizeMode="tail">
                         {item.fullDays}/{(lbMode==='haftalik' ? (leaderboard?.daysInRange || 0) : (taskLeaderboard?.daysInRange || 0))} tam gün • {item.completedCount} tamamlanan
@@ -800,6 +503,48 @@ export default function AnalyticsScreen() {
                 <View style={{ alignItems: 'center', paddingVertical: 24 }}>
                   <Ionicons name="people" size={48} color={theme.textDim} style={{ marginBottom: 8 }} />
                   <Text style={{ color: theme.textDim }}>Henüz bu hafta puan alan yok.</Text>
+                </View>
+              )}
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <TouchableOpacity onPress={handlePrevMonth} style={{ padding: 6 }}>
+                <Ionicons name="chevron-back" size={22} color={theme.text} />
+              </TouchableOpacity>
+              <Text style={[styles.title, { color: theme.text }]}> 
+                {monthlyLeaderboard ? `${format(new Date(monthlyLeaderboard.start), 'LLLL yyyy', { locale: tr })}` : 'Aylık Sıralama'}
+              </Text>
+              <TouchableOpacity onPress={handleNextMonth} style={{ padding: 6 }}>
+                <Ionicons name="chevron-forward" size={22} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.taskPerformanceContainer, { backgroundColor: theme.surface }] }>
+              {monthlyLeaderboard && monthlyLeaderboard.items.length > 0 ? (
+                monthlyLeaderboard.items.map((item, idx) => (
+                  <View key={item.userId} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                        <Text style={{ width: 22, textAlign: 'right', fontWeight: 'bold', color: theme.textDim, marginRight: 8 }}>{idx + 1}.</Text>
+                        <Ionicons name={idx === 0 ? 'trophy' : 'person-circle'} size={20} color={idx === 0 ? newColors.accent[0] : theme.textDim} style={{ marginRight: 8 }} />
+                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontWeight: '600', color: theme.text, flexShrink: 1 }}>
+                          {item.displayName}
+                        </Text>
+                      </View>
+                      <Text style={{ fontWeight: '700', color: theme.text, marginLeft: 12 }}>{item.points}</Text>
+                    </View>
+                    <View style={{ marginTop: 4 }}>
+                      <Text style={{ fontSize: 12, color: theme.textDim, textAlign: 'right' }} numberOfLines={1} ellipsizeMode="tail">
+                        {item.fullDays}/{monthlyLeaderboard.daysInRange} tam gün • {item.completedCount} tamamlanan
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                  <Ionicons name="people" size={48} color={theme.textDim} style={{ marginBottom: 8 }} />
+                  <Text style={{ color: theme.textDim }}>Henüz bu ay puan alan yok.</Text>
                 </View>
               )}
             </View>

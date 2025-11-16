@@ -1,6 +1,8 @@
 import { useFocusEffect } from '@react-navigation/native';
 import React from 'react';
-import { Platform, ScrollView, StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
+import { Platform, ScrollView, StatusBar, StyleSheet, useColorScheme, View, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import Announcements from '../../components/Announcements';
 import Header from '../../components/Header';
 import WeeklyProgram from '../../components/WeeklyProgram';
@@ -9,6 +11,7 @@ import Colors from '../../constants/Colors';
 export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  const router = useRouter();
   
 
   // Sayfa odaklandığında StatusBar'ı güncelleyelim
@@ -28,6 +31,10 @@ export default function HomeScreen() {
     console.log('Notification pressed');
   };
 
+  const handleContactsPress = () => {
+    router.push('/contacts');
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Header
@@ -35,6 +42,12 @@ export default function HomeScreen() {
         showNotification={true}
         onNotificationPress={handleNotificationPress}
         isProfileScreen={false}
+        leftButton={
+          <View style={styles.contactsButton}>
+            <Ionicons name="people" size={18} color="#FFFFFF" />
+          </View>
+        }
+        onLeftButtonPress={handleContactsPress}
       />
       <ScrollView
         style={styles.scrollView}
@@ -58,5 +71,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingTop: 10,
     paddingBottom: 100,
+  },
+  contactsButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 }); 

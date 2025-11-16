@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, SafeAreaView, StatusBar, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, SafeAreaView, StatusBar, ActivityIndicator, ScrollView, Switch } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Colors from '../../constants/Colors';
 import { useColorScheme } from 'react-native';
 import { doc, getDoc } from 'firebase/firestore';
@@ -12,6 +12,7 @@ import AdminTaskManagement from '../../components/AdminTaskManagement';
 import AdminUserSelectionModal from '../../components/AdminUserSelectionModal';
 import { addSampleTasks } from '../../services/TaskService';
 import { BlurView } from 'expo-blur';
+import { useTheme } from '../../context/ThemeContext';
 
 type UserData = {
   username: string;
@@ -27,6 +28,7 @@ export default function ProfileScreen() {
   const { user, logOut, isAdmin } = useAuth();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  const { toggleTheme, isUsingSystem, isReady: isThemeReady, setPreference: setThemePreference, isDarkMode } = useTheme();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -126,6 +128,30 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleThemeToggle = async () => {
+    try {
+      await toggleTheme();
+    } catch (error) {
+      console.error('Tema güncellenirken hata:', error);
+      Alert.alert('Hata', 'Tema değiştirilirken bir sorun oluştu.');
+    }
+  };
+
+  const handleUseSystemTheme = async () => {
+    try {
+      await setThemePreference('system');
+    } catch (error) {
+      console.error('Tema sistem ayarına alınırken hata:', error);
+      Alert.alert('Hata', 'Cihaz ayarını kullanırken bir sorun oluştu.');
+    }
+  };
+
+  const themeStatusText = isUsingSystem
+    ? 'Cihaz ayarlarını otomatik takip ediyor'
+    : isDarkMode
+      ? 'Uygulama karanlık modda'
+      : 'Uygulama aydınlık modda';
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -187,6 +213,41 @@ export default function ProfileScreen() {
             <MaterialCommunityIcons name="chevron-right" size={24} color={theme.textDim} />
           </TouchableOpacity>
 
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Görünüm</Text>
+
+          <View style={[styles.menuItem, styles.themeCard, { backgroundColor: theme.surface }]}>
+            <View style={styles.themeInfo}>
+              <Text style={[styles.menuText, { color: theme.text, marginBottom: 2 }]}>Karanlık Mod</Text>
+              <Text style={[styles.themeDescription, { color: theme.textDim }]}>
+                {themeStatusText}
+              </Text>
+            </View>
+            <Switch
+              value={isDarkMode}
+              onValueChange={handleThemeToggle}
+              disabled={!isThemeReady}
+              trackColor={{ false: theme.border, true: theme.primary }}
+              thumbColor={
+                Platform.OS === 'android'
+                  ? isDarkMode
+                    ? theme.primary
+                    : '#f4f3f4'
+                  : undefined
+              }
+              ios_backgroundColor={theme.border}
+            />
+          </View>
+
+          {!isUsingSystem && (
+            <TouchableOpacity
+              style={[styles.resetThemeButton, { borderColor: theme.border }]}
+              onPress={handleUseSystemTheme}
+            >
+              <MaterialCommunityIcons name="cellphone-settings" size={20} color={theme.text} />
+              <Text style={[styles.resetThemeText, { color: theme.text }]}>Telefon ayarını kullan</Text>
+            </TouchableOpacity>
+          )}
+
           {/* Admin İşlemleri */}
           {isAdmin && (
             <>
@@ -237,13 +298,6 @@ export default function ProfileScreen() {
                 </View>
               </View>
 
-              <TouchableOpacity
-                style={[styles.adminButton, { backgroundColor: theme.primary }]}
-                onPress={handleAddSampleTasks}
-              >
-                <Ionicons name="add-circle-outline" size={24} color="#FFFFFF" />
-                <Text style={styles.adminButtonText}>Örnek Vazifeleri Ekle</Text>
-              </TouchableOpacity>
             </>
           )}
           
@@ -486,6 +540,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginLeft: 8,
     flex: 1,
+  },
+  themeCard: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  themeInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  themeDescription: {
+    fontSize: 14,
+  },
+  resetThemeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+  },
+  resetThemeText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   adminButton: {
     flexDirection: 'row',

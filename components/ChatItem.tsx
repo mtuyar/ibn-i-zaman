@@ -25,6 +25,7 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onSelect, onDelete }) 
   const theme = Colors[colorScheme];
   const { user } = useAuth();
   const lastMessage = chat.lastMessage;
+  const unread = user ? (chat.unreadCount?.[user.uid] || 0) : 0;
   // const isOnline = chat.type === 'private' && chat.participants?.some(p => p.userId !== user?.uid && p.status === 'online');
 
   // Swipe ile silme butonu
@@ -82,6 +83,11 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onSelect, onDelete }) 
             {lastMessage?.content ? lastMessage.content : 'Henüz mesaj yok'}
           </Text>
         </View>
+        {unread > 0 && (
+          <View style={{ minWidth: 22, paddingHorizontal: 6, height: 22, borderRadius: 11, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center', marginLeft: 8 }}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{unread > 99 ? '99+' : unread}</Text>
+          </View>
+        )}
       </TouchableOpacity>
     </Swipeable>
   );

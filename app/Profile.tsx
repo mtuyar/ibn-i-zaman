@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, ActivityIndicator, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, ActivityIndicator, Platform, useWindowDimensions, Switch } from 'react-native';
 import Colors from '../constants/Colors';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,10 +11,12 @@ import AdminUserSelectionModal from '../components/AdminUserSelectionModal';
 import { BlurView } from 'expo-blur';
 import AdminTaskManagement from '../components/AdminTaskManagement';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const THEME_PREFERENCE_KEY = 'profile_theme_preference';
 
 export default function ProfileScreen() {
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const deviceScheme = useColorScheme() ?? 'light';
   const { user } = useAuth();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
@@ -22,6 +24,47 @@ export default function ProfileScreen() {
   const [isUserSelectionModalVisible, setIsUserSelectionModalVisible] = useState(false);
   const { width } = useWindowDimensions();
   const [showTaskManagement, setShowTaskManagement] = useState(false);
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(deviceScheme);
+  const [hasThemeOverride, setHasThemeOverride] = useState(false);
+  const theme = Colors[themeMode];
+
+  useEffect(() => {
+    const loadThemePreference = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(THEME_PREFERENCE_KEY);
+        if (stored === 'light' || stored === 'dark') {
+          setThemeMode(stored);
+          setHasThemeOverride(true);
+        } else {
+          setThemeMode(deviceScheme);
+          setHasThemeOverride(false);
+        }
+      } catch (error) {
+        console.error('Tema tercihi yüklenemedi:', error);
+        setThemeMode(deviceScheme);
+      }
+    };
+
+    loadThemePreference();
+  }, [deviceScheme]);
+
+  useEffect(() => {
+    if (!hasThemeOverride) {
+      setThemeMode(deviceScheme);
+    }
+  }, [deviceScheme, hasThemeOverride]);
+
+  const handleThemeToggle = async (value: boolean) => {
+    const next = value ? 'dark' : 'light';
+    try {
+      setThemeMode(next);
+      setHasThemeOverride(true);
+      await AsyncStorage.setItem(THEME_PREFERENCE_KEY, next);
+      Haptics.selectionAsync();
+    } catch (error) {
+      console.error('Tema tercihi kaydedilemedi:', error);
+    }
+  };
 
   // Admin kontrolü
   useEffect(() => {
@@ -157,6 +200,30 @@ export default function ProfileScreen() {
             </Text>
             <Ionicons name="chevron-forward" size={20} color={theme.textDim} />
           </TouchableOpacity>
+
+          <View style={[styles.separator, { backgroundColor: theme.border }]} />
+
+          <View style={styles.themeToggleRow}>
+            <View style={[styles.menuIconContainer, { backgroundColor: `${theme.accent}20` }]}> 
+              <Ionicons
+                name={themeMode === 'dark' ? 'moon' : 'sunny'}
+                size={20}
+                color={theme.accent}
+              />
+            </View>
+            <View style={styles.themeToggleTextContainer}>
+              <Text style={[styles.menuText, { color: theme.text }]}>Tema</Text>
+              <Text style={[styles.themeToggleHint, { color: theme.textDim }]}> 
+                {themeMode === 'dark' ? 'Karanlık mod aktif' : 'Aydınlık mod aktif'}
+              </Text>
+            </View>
+            <Switch
+              value={themeMode === 'dark'}
+              onValueChange={handleThemeToggle}
+              trackColor={{ false: `${theme.border}AA`, true: theme.primary }}
+              thumbColor={themeMode === 'dark' ? '#fff' : '#f4f3f4'}
+            />
+          </View>
         </View>
         
         {/* Admin İşlemleri */}
@@ -277,7 +344,7 @@ export default function ProfileScreen() {
         <BlurView
           style={StyleSheet.absoluteFill}
           intensity={Platform.OS === 'ios' ? 20 : 100}
-          tint={colorScheme}
+          tint={themeMode}
         >
           <AdminTaskManagement 
             onClose={() => setShowTaskManagement(false)} 
@@ -391,5 +458,18 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 16,
-  }
+  },
+  themeToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
+  themeToggleTextContainer: {
+    flex: 1,
+  },
+  themeToggleHint: {
+    fontSize: 12,
+    marginTop: 4,
+  },
 }); 
