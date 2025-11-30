@@ -1,34 +1,32 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { Image } from 'expo-image';
 import Colors from '../constants/Colors';
-import { getAllPrograms, getLimitedPrograms, Program, subscribeToProgramUpdates } from '../services/ProgramService';
+import { getAllPrograms, Program, subscribeToProgramUpdates } from '../services/ProgramService';
+import { ProgramTimeFilter, ProgramType } from '../types/program';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.75;
 const CARD_MARGIN = width * 0.02;
 
-// Program renkleri
-const programColors = {
-  'Ahlak Atölyesi': '#FF9500',
-  'Darul Firdevs Sohbetleri': '#FF2D55',
-  'Hasbihal İstasyonu': '#FFCC00',
-  'Hasbihal Durağı': '#FF9500',
+const STATUS_LABELS = {
+  planned: 'Planlandı',
+  ongoing: 'Devam',
+  completed: 'Tamamlandı',
 } as const;
 
 interface WeeklyProgramProps {
   limit?: number;
 }
 
-export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
+export default function WeeklyProgram({ limit = 7 }: WeeklyProgramProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
-  const [allProgramsCount, setAllProgramsCount] = useState(0);
-  const [allDaysCount, setAllDaysCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -43,33 +41,12 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
       }
       
       console.log(`Programlar yükleniyor (force refresh: ${forceRefresh})`);
-      // Önce tüm programları al (sayım için)
-      const allData = await getAllPrograms(forceRefresh);
-      // Toplam program sayısını ve benzersiz gün sayısını kaydet
-      setAllProgramsCount(allData.length);
-      setAllDaysCount(new Set(allData.map(p => p.day)).size);
-      
-      // Sonra limitli programları al (gösterim için)
-      const data = await getLimitedPrograms(limit, forceRefresh);
-      console.log(`Programlar yüklendi, ${data.length} adet program bulundu`);
-      
-      // Programları günlere göre sırala
-      const dayOrder = {
-        'Pazartesi': 1,
-        'Salı': 2,
-        'Çarşamba': 3,
-        'Perşembe': 4,
-        'Cuma': 5,
-        'Cumartesi': 6,
-        'Pazar': 7
-      };
-      
-      // Günlere göre sıralı hale getir
+      const data = await getAllPrograms(forceRefresh);
       const sortedData = [...data].sort((a, b) => {
-        return (dayOrder[a.day as keyof typeof dayOrder] || 99) - 
-               (dayOrder[b.day as keyof typeof dayOrder] || 99);
+        const timeA = a.startDate?.getTime?.() ?? 0;
+        const timeB = b.startDate?.getTime?.() ?? 0;
+        return timeA - timeB;
       });
-      
       setPrograms(sortedData);
       setError(null);
     } catch (err: any) {
@@ -122,6 +99,138 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
     loadPrograms(true);
   };
 
+  const getTimeBucket = (program: Program): ProgramTimeFilter => {
+    const now = Date.now();
+    const start = program.startDate?.getTime?.() ?? 0;
+    const end = program.endDate?.getTime?.();
+ 
+    if (program.status === 'completed' || (end && end < now)) {
+      return 'past';
+    }
+    if (program.status === 'ongoing') {
+      return 'ongoing';
+    }
+    if (start > now) {
+      return 'upcoming';
+    }
+    return 'ongoing';
+  };
+
+  const getTypeColor = (type: ProgramType) => {
+    switch (type) {
+      case 'monthly':
+        return theme.warning;
+      case 'one_time':
+        return theme.secondary;
+      default:
+        return theme.primary;
+    }
+  };
+
+  const getStatusColor = (status: Program['status']) => {
+    switch (status) {
+      case 'completed':
+        return theme.textDim;
+      case 'ongoing':
+        return theme.accent || '#38BDF8'; // Devam durumu için mavi/turkuaz renk
+      default:
+        return theme.primary;
+    }
+  };
+
+  const formatProgramDate = (date: Date) =>
+    new Intl.DateTimeFormat('tr-TR', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+
+  const formatRelativeTime = (date: Date): string => {
+    if (!date || !date.getTime) return 'Tarih belirtilmedi';
+    try {
+      const diffMs = Date.now() - date.getTime();
+      const minutes = Math.round(diffMs / 60000);
+      if (minutes < 1) return 'Şimdi';
+      if (minutes < 60) return `${minutes} dk önce`;
+      const hours = Math.round(minutes / 60);
+      if (hours < 24) return `${hours} saat önce`;
+      const days = Math.round(hours / 24);
+      return `${days} gün önce`;
+    } catch (error) {
+      console.error('formatRelativeTime hatası:', error);
+      return 'Tarih belirtilmedi';
+    }
+  };
+
+  const formatFutureTime = (date: Date): string => {
+    if (!date || !date.getTime) return 'Tarih belirtilmedi';
+    try {
+      const diffMs = date.getTime() - Date.now();
+      const minutes = Math.round(diffMs / 60000);
+      if (minutes <= 0) return 'Başlamak üzere';
+      if (minutes < 60) return `${minutes} dk sonra`;
+      const hours = Math.round(minutes / 60);
+      if (hours < 24) return `${hours} saat sonra`;
+      const days = Math.round(hours / 24);
+      return `${days} gün sonra`;
+    } catch (error) {
+      console.error('formatFutureTime hatası:', error);
+      return 'Tarih belirtilmedi';
+    }
+  };
+
+  const getTypeLabel = (type: ProgramType) => {
+    switch (type) {
+      case 'monthly':
+        return 'Aylık';
+      case 'one_time':
+        return 'Tek Seferlik';
+      default:
+        return 'Haftalık';
+    }
+  };
+
+  const getProgramTimingLabel = (program: Program) => {
+    if (program.type === 'one_time') {
+      const base = program.occurrenceDateLabel ?? (program.startDate ? formatProgramDate(program.startDate) : 'Tarih belirtilmedi');
+      const bucket = getTimeBucket(program);
+      if (bucket === 'upcoming' && program.startDate) {
+        return `${base} • ${formatFutureTime(program.startDate)}`;
+      }
+      if (bucket === 'past' && program.startDate) {
+        return `${base} • ${formatRelativeTime(program.startDate)}`;
+      }
+      return `${base} • Devam ediyor`;
+    }
+
+    if (program.type === 'monthly') {
+      const dayOfMonth = program.dayOfMonth || (program.startDate ? program.startDate.getDate() : null);
+      return `Her ay ${dayOfMonth || '?'}. gün • ${program.time ?? ''}`;
+    }
+
+    return `${program.day || 'Gün Belirtilmedi'} • ${program.time || ''}`;
+  };
+
+  const activePrograms = useMemo(
+    () => programs.filter((program) => getTimeBucket(program) !== 'past'),
+    [programs]
+  );
+
+  const visiblePrograms = useMemo(() => {
+    return [...activePrograms]
+      .sort((a, b) => {
+        const timeA = a.startDate?.getTime?.() ?? 0;
+        const timeB = b.startDate?.getTime?.() ?? 0;
+        return timeA - timeB;
+      })
+      .slice(0, limit);
+  }, [activePrograms, limit]);
+
+  const statsSubtitle =
+    visiblePrograms.length > 0 ? `En yakın ${visiblePrograms.length} program` : 'Program bulunamadı';
+
   if (loading && !isRefreshing) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
@@ -159,9 +268,9 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
     <View style={styles.container}>
       <View style={styles.headerContainer}>
         <View style={styles.titleContainer}>
-          <Text style={[styles.title, { color: theme.text }]}>Haftalık Programlar</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Programlar</Text>
           <Text style={[styles.subtitle, { color: theme.secondary }]}>
-            {allProgramsCount} Program • {allDaysCount} Gün
+            {statsSubtitle}
           </Text>
         </View>
         <View style={styles.buttonContainer}>
@@ -197,7 +306,28 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
         contentInsetAdjustmentBehavior="never"
         automaticallyAdjustContentInsets={false}
       >
-        {programs.map((item, index) => (
+        {visiblePrograms.length === 0 ? (
+          <View style={[styles.cardContainer, styles.emptyCard, { marginLeft: width * 0.04 }]}>
+            <Text style={[styles.emptyText, { color: '#fff' }]}>
+              Gösterilecek program bulunamadı.
+            </Text>
+          </View>
+        ) : visiblePrograms.map((item, index) => {
+          const scheduleTitle = item.type === 'one_time' ? 'Tek Seferlik' : item.day || getTypeLabel(item.type);
+          const timeDisplay =
+            item.type === 'one_time'
+              ? item.occurrenceDateLabel ?? (item.startDate ? formatProgramDate(item.startDate) : 'Tarih belirtilmedi')
+              : item.type === 'monthly'
+                ? `Ayın ${item.dayOfMonth || (item.startDate ? item.startDate.getDate() : '?')}. günü`
+                : item.time || '';
+          const statusColor = getStatusColor(item.status);
+          const statusLabel = STATUS_LABELS[item.status];
+          const descriptionText = item.description || getProgramTimingLabel(item);
+          
+          // Fotoğraf kontrolü - coverImage veya gallery'den ilk görsel
+          const displayImage = item.coverImage || (item.gallery && item.gallery.length > 0 ? item.gallery[0] : null);
+          
+          return (
           <TouchableOpacity 
             key={item.id} 
             activeOpacity={0.9}
@@ -207,54 +337,101 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
             ]}
             onPress={() => handleProgramPress(item)}
           >
-            <LinearGradient
-              colors={theme.cardGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.programCard}
-            >
-              <View style={styles.cardHeader}>
-                <View style={[styles.iconContainer, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>
-                  <MaterialCommunityIcons name={item.icon as any} size={24} color="#FFF" />
-                </View>
-                <View style={styles.dayContainer}>
-                  <Text style={styles.dayText}>{item.day}</Text>
-                  <View style={styles.infoContainer}>
-                    <View style={[styles.timeContainer, { backgroundColor: 'rgba(255, 255, 255, 0.15)' }]}>
-                      <MaterialCommunityIcons name="clock-outline" size={16} color="#FFF" />
-                      <Text style={[styles.timeText, { color: '#FFF' }]}>{item.time}</Text>
+            {displayImage ? (
+              // Fotoğraf varsa modern kart tasarımı
+              <View style={styles.programCardWithImage}>
+                <Image 
+                  source={{ uri: displayImage }} 
+                  style={styles.cardBackgroundImage}
+                  contentFit="cover"
+                />
+                <View style={styles.imageOverlay} />
+                <View style={styles.cardContent}>
+                  <View style={styles.cardHeader}>
+                    <View style={[styles.statusBadge, { 
+                      backgroundColor: statusColor === theme.accent ? 'rgba(56, 189, 248, 0.95)' : 
+                                      statusColor === theme.warning ? 'rgba(245, 158, 11, 0.95)' : 
+                                      statusColor === theme.textDim ? 'rgba(107, 114, 128, 0.95)' :
+                                      'rgba(46, 125, 255, 0.95)' 
+                    }]}>
+                      <Text style={styles.statusBadgeText}>{statusLabel}</Text>
                     </View>
-                    <View style={[styles.attendanceContainer, { backgroundColor: 'rgba(255, 255, 255, 0.15)' }]}>
-                      <MaterialCommunityIcons name="account-group" size={16} color="#FFF" />
-                      <Text style={[styles.timeText, { color: '#FFF' }]}>{item.lastAttendance}</Text>
+                  </View>
+                  <View style={styles.cardBody}>
+                    <Text style={styles.programTextWithImage}>{item.program}</Text>
+                    {descriptionText && (
+                      <Text style={styles.programDescriptionWithImage} numberOfLines={2}>
+                        {descriptionText}
+                      </Text>
+                    )}
+                    <View style={styles.cardInfoRow}>
+                      <View style={styles.cardInfoItem}>
+                        <MaterialCommunityIcons name="clock-outline" size={14} color="#FFF" />
+                        <Text style={styles.cardInfoText}>{timeDisplay}</Text>
+                      </View>
+                      <View style={styles.cardInfoItem}>
+                        <MaterialCommunityIcons name="account-group" size={14} color="#FFF" />
+                        <Text style={styles.cardInfoText}>{item.lastAttendance ?? 0} kişi</Text>
+                      </View>
                     </View>
                   </View>
                 </View>
               </View>
-              <View style={styles.contentContainer}>
-                <Text style={styles.programText}>{item.program}</Text>
-                {item.description && (
-                  <Text style={[styles.programDescription, { color: '#FFF' }]} numberOfLines={2}>
-                    {item.description}
-                  </Text>
-                )}
-                <View style={styles.cardFooter}>
-                  <View style={[styles.locationContainer, { backgroundColor: 'rgba(255, 255, 255, 0.15)' }]}>
-                    <MaterialCommunityIcons name="map-marker" size={16} color="#FFF" />
-                    <Text style={[styles.locationText, { color: '#FFF' }]} numberOfLines={1}>{item.location}</Text>
+            ) : (
+              // Fotoğraf yoksa ikon placeholder ile modern tasarım
+              <View style={[styles.programCardNoImage, { backgroundColor: theme.surface }]}>
+                <View style={[styles.iconPlaceholderContainer, { backgroundColor: `${theme.primary}12` }]}>
+                  <MaterialCommunityIcons name={item.icon as any} size={32} color={theme.primary} />
+                </View>
+                <View style={styles.cardHeaderNoImage}>
+                  <View style={styles.dayContainerNoImage}>
+                    <Text style={[styles.dayTextNoImage, { color: theme.text }]}>{scheduleTitle}</Text>
+                    <View style={styles.infoContainerNoImage}>
+                      <View style={[styles.timeContainerNoImage, { backgroundColor: `${theme.primary}15` }]}>
+                        <MaterialCommunityIcons name="clock-outline" size={14} color={theme.primary} />
+                        <Text style={[styles.timeTextNoImage, { color: theme.text }]}>{timeDisplay}</Text>
+                      </View>
+                      <View style={[styles.attendanceContainerNoImage, { 
+                        backgroundColor: statusColor === theme.accent ? 'rgba(56, 189, 248, 0.15)' : 
+                                        statusColor === theme.warning ? 'rgba(245, 158, 11, 0.15)' : 
+                                        statusColor === theme.textDim ? 'rgba(107, 114, 128, 0.15)' :
+                                        `${theme.primary}15`,
+                        borderColor: statusColor === theme.accent ? 'rgba(56, 189, 248, 0.3)' : 
+                                    statusColor === theme.warning ? 'rgba(245, 158, 11, 0.3)' : 
+                                    statusColor === theme.textDim ? 'rgba(107, 114, 128, 0.3)' :
+                                    `${theme.primary}30`
+                      }]}>
+                        <MaterialCommunityIcons name="progress-clock" size={14} color={statusColor} />
+                        <Text style={[styles.statusTextNoImage, { color: statusColor }]}>{statusLabel}</Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={[styles.responsibleContainer, { backgroundColor: 'rgba(255, 255, 255, 0.15)' }]}>
-                    <MaterialCommunityIcons name="account" size={16} color="#FFF" />
-                    <Text style={[styles.responsibleText, { color: '#FFF' }]} numberOfLines={1}>
-                      {item.responsible}
+                </View>
+                <View style={styles.contentContainerNoImage}>
+                  <Text style={[styles.programTextNoImage, { color: theme.text }]}>{item.program}</Text>
+                  {descriptionText && (
+                    <Text style={[styles.programDescriptionNoImage, { color: theme.textDim }]} numberOfLines={2}>
+                      {descriptionText}
                     </Text>
+                  )}
+                  <View style={styles.cardFooterNoImage}>
+                    <View style={[styles.locationContainerNoImage, { backgroundColor: `${theme.primary}08` }]}>
+                      <MaterialCommunityIcons name="map-marker" size={14} color={theme.primary} />
+                      <Text style={[styles.locationTextNoImage, { color: theme.text }]} numberOfLines={1}>{item.location}</Text>
+                    </View>
+                    <View style={[styles.attendanceInfoNoImage, { backgroundColor: `${theme.primary}08` }]}>
+                      <MaterialCommunityIcons name="account-group" size={14} color={theme.primary} />
+                      <Text style={[styles.attendanceTextNoImage, { color: theme.text }]}>
+                        {item.lastAttendance ?? 0} kişi
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </View>
-              <View style={styles.overlay} />
-            </LinearGradient>
+            )}
           </TouchableOpacity>
-        ))}
+        );
+        })}
       </ScrollView>
 
       <Modal
@@ -288,13 +465,21 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
                       <View style={[styles.modalBadge, { backgroundColor: `${theme.primary}20` }]}>
                         <MaterialCommunityIcons name="calendar" size={14} color={theme.primary} />
                         <Text style={[styles.modalBadgeText, { color: theme.primary }]}>
-                          {selectedProgram.day}
+                          {getTypeLabel(selectedProgram.type)}
                         </Text>
                       </View>
                       <View style={[styles.modalBadge, { backgroundColor: `${theme.primary}20` }]}>
                         <MaterialCommunityIcons name="clock-outline" size={14} color={theme.primary} />
                         <Text style={[styles.modalBadgeText, { color: theme.primary }]}>
-                          {selectedProgram.time}
+                          {selectedProgram.type === 'one_time'
+                            ? (selectedProgram.startDate ? formatProgramDate(selectedProgram.startDate) : 'Tarih belirtilmedi')
+                            : selectedProgram.time || ''}
+                        </Text>
+                      </View>
+                      <View style={[styles.modalBadge, { backgroundColor: `${theme.primary}20` }]}>
+                        <MaterialCommunityIcons name="progress-clock" size={14} color={theme.primary} />
+                        <Text style={[styles.modalBadgeText, { color: theme.primary }]}>
+                          {STATUS_LABELS[selectedProgram.status]}
                         </Text>
                       </View>
                     </View>
@@ -310,6 +495,12 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
                   </TouchableOpacity>
                 </View>
                 <View style={styles.modalInfo}>
+                  <View style={styles.modalInfoItem}>
+                    <MaterialCommunityIcons name="calendar-range" size={20} color={theme.primary} />
+                    <Text style={[styles.modalInfoText, { color: theme.text }]}>
+                      {getProgramTimingLabel(selectedProgram)}
+                    </Text>
+                  </View>
                   <View style={styles.modalInfoItem}>
                     <MaterialCommunityIcons name="map-marker" size={20} color={theme.primary} />
                     <Text style={[styles.modalInfoText, { color: theme.text }]}>
@@ -334,6 +525,13 @@ export default function WeeklyProgram({ limit = 4 }: WeeklyProgramProps) {
                     {selectedProgram.description}
                   </Text>
                 </View>
+                {selectedProgram.scheduleNote ? (
+                  <View style={[styles.modalDescriptionContainer, { backgroundColor: `${theme.secondary}10` }]}>
+                    <Text style={[styles.modalDescription, { color: theme.text }]}>
+                      {selectedProgram.scheduleNote}
+                    </Text>
+                  </View>
+                ) : null}
                 <TouchableOpacity 
                   style={[styles.modalButton, { backgroundColor: theme.primary }]}
                   onPress={closeModal}
@@ -527,6 +725,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     opacity: 0.9,
   },
+  attendanceInfo: {
+    fontSize: 12,
+    opacity: 0.85,
+    marginBottom: 8,
+  },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -562,6 +765,13 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     fontWeight: '500',
     flex: 1,
+  },
+  emptyCard: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    minHeight: Platform.OS === 'ios' ? 220 : 210,
   },
   overlay: {
     position: 'absolute',
@@ -677,5 +887,197 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 8,
     paddingLeft: width * 0.05,
+  },
+  // Fotoğraflı kart stilleri
+  programCardWithImage: {
+    width: CARD_WIDTH,
+    height: Platform.OS === 'ios' ? 240 : 230,
+    borderRadius: 20,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  cardBackgroundImage: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  cardContent: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'space-between',
+  },
+  cardBody: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  statusBadgeText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  programTextWithImage: {
+    color: '#FFF',
+    fontSize: Platform.OS === 'ios' ? 22 : 20,
+    fontWeight: '700',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  programDescriptionWithImage: {
+    color: '#FFF',
+    fontSize: Platform.OS === 'ios' ? 13 : 12,
+    lineHeight: 18,
+    marginBottom: 12,
+    opacity: 0.95,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  cardInfoRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  cardInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6,
+  },
+  cardInfoText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // Fotoğrafsız kart stilleri
+  programCardNoImage: {
+    width: CARD_WIDTH,
+    height: Platform.OS === 'ios' ? 240 : 230,
+    borderRadius: 20,
+    padding: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  iconPlaceholderContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cardHeaderNoImage: {
+    marginBottom: 12,
+  },
+  dayContainerNoImage: {
+    marginBottom: 8,
+  },
+  dayTextNoImage: {
+    fontSize: Platform.OS === 'ios' ? 16 : 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  infoContainerNoImage: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  timeContainerNoImage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6,
+  },
+  timeTextNoImage: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  attendanceContainerNoImage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6,
+    borderWidth: 1,
+  },
+  statusTextNoImage: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  contentContainerNoImage: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  programTextNoImage: {
+    fontSize: Platform.OS === 'ios' ? 20 : 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  programDescriptionNoImage: {
+    fontSize: Platform.OS === 'ios' ? 13 : 12,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  cardFooterNoImage: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  locationContainerNoImage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6,
+    flex: 1,
+  },
+  locationTextNoImage: {
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1,
+  },
+  attendanceInfoNoImage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6,
+  },
+  attendanceTextNoImage: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 

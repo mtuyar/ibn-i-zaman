@@ -6,21 +6,46 @@ const NOTIFICATION_STORAGE_KEY = '@task_reminder_time';
 
 // Configure notification handler once
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    console.log('🔔 Notification handler çağrıldı:', notification.request.content.title);
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 export async function initialize() {
-  // Ask permission and ensure Android channel exists
+  // Ask permission and ensure Android channels exist
   await NotificationService.requestPermissions();
   if (Platform.OS === 'android') {
+    // Günlük hatırlatmalar için channel
     await Notifications.setNotificationChannelAsync('daily-reminders', {
       name: 'Günlük Hatırlatmalar',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#1976D2',
+      sound: 'default',
+    });
+    
+    // Mesaj bildirimleri için channel (yüksek öncelik, ses ve titreşim ile)
+    await Notifications.setNotificationChannelAsync('messages', {
+      name: 'Mesaj Bildirimleri',
+      description: 'Yeni mesaj bildirimleri',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#1976D2',
+      sound: 'default',
+      enableVibrate: true,
+      showBadge: true,
+    });
+    
+    // Default channel (diğer bildirimler için)
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Genel Bildirimler',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#1976D2',

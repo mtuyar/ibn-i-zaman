@@ -18,7 +18,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatItem } from '../../components/ChatItem';
 import Colors from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
-import { Chat, deleteChat, getChats } from '../../services/ChatService';
+import { Chat, deleteChat, getChats, subscribeToChats } from '../../services/ChatService';
+import { getUser } from '../../services/UserService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -28,6 +30,7 @@ export default function ChatScreen() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
 
   const filteredChats = chats.filter(chat =>
     chat.name?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -47,8 +50,58 @@ export default function ChatScreen() {
   }, [user]);
 
   useEffect(() => {
+    if (!user?.uid) return;
+    
+    // İlk yükleme
     loadChats();
-  }, [loadChats]);
+    
+    // Gerçek zamanlı dinleme
+    const unsubscribe = subscribeToChats(user.uid, (updatedChats) => {
+      setChats(updatedChats);
+    });
+    
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.uid]);
+
+  // Profil resmini yükle
+  useEffect(() => {
+    const loadProfilePhoto = async () => {
+      if (!user?.uid) return;
+      
+      try {
+        // Önce cache'den kontrol et
+        const cachedPhoto = await AsyncStorage.getItem(`profile_photo_${user.uid}`);
+        if (cachedPhoto) {
+          setProfilePhotoUrl(cachedPhoto);
+          return;
+        }
+        
+        // Cache'de yoksa Firestore'dan çek
+        const userData = await getUser(user.uid);
+        if (userData?.photoURL) {
+          setProfilePhotoUrl(userData.photoURL);
+          await AsyncStorage.setItem(`profile_photo_${user.uid}`, userData.photoURL);
+        } else if (user?.photoURL) {
+          // Firestore'da yoksa Firebase Auth'dan al
+          setProfilePhotoUrl(user.photoURL);
+        }
+      } catch (error) {
+        console.error('Profil resmi yükleme hatası:', error);
+        // Hata durumunda Firebase Auth'dan al
+        if (user?.photoURL) {
+          setProfilePhotoUrl(user.photoURL);
+        }
+      }
+    };
+    
+    loadProfilePhoto();
+  }, [user]);
+
+  const handleProfilePress = () => {
+    router.push('/(tabs)/profile');
+  };
 
   const handleChatSelect = (chatId: string) => {
     router.push(`/chat/${chatId}`);
@@ -73,13 +126,15 @@ export default function ChatScreen() {
       {/* Header */}
       <View style={[styles.headerContainer, { backgroundColor: theme.surface, borderBottomColor: theme.border, paddingTop: Platform.OS === 'ios' ? 8 : StatusBar.currentHeight }]}>
         <View style={styles.headerRow}>
-          {user?.photoURL ? (
-            <Image source={{ uri: user.photoURL }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatarPlaceholder, { backgroundColor: theme.border }]}>
-              <Text style={[styles.avatarText, { color: theme.text }]}>{user?.displayName?.charAt(0) || '?'}</Text>
-            </View>
-          )}
+          <TouchableOpacity onPress={handleProfilePress} activeOpacity={0.7}>
+            {profilePhotoUrl ? (
+              <Image source={{ uri: profilePhotoUrl }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatarPlaceholder, { backgroundColor: theme.border }]}>
+                <Text style={[styles.avatarText, { color: theme.text }]}>{user?.displayName?.charAt(0) || user?.email?.charAt(0) || '?'}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: theme.text }]}>Mesajlar</Text>
           <TouchableOpacity style={styles.addButton} onPress={handleNewMessage}>
             <Ionicons name="add" size={28} color={theme.primary} />

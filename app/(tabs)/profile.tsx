@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, SafeAreaView, StatusBar, ActivityIndicator, ScrollView, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, SafeAreaView, StatusBar, ActivityIndicator, ScrollView, Switch, Modal, TextInput } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Colors from '../../constants/Colors';
 import { useColorScheme } from 'react-native';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -13,6 +13,11 @@ import AdminUserSelectionModal from '../../components/AdminUserSelectionModal';
 import { addSampleTasks } from '../../services/TaskService';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
+import * as ImagePicker from 'expo-image-picker';
+import { Image } from 'expo-image';
+import { uploadImageFromUri } from '../../services/StorageService';
+import { createOrUpdateUser } from '../../services/UserService';
+import { registerDevicePushToken, sendTestNotification } from '../../services/PushService';
 
 type UserData = {
   username: string;
@@ -35,6 +40,10 @@ export default function ProfileScreen() {
   const [isAdminLoading, setIsAdminLoading] = useState(false);
   const [isTasksModalVisible, setIsTasksModalVisible] = useState(false);
   const [isUserSelectionModalVisible, setIsUserSelectionModalVisible] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [cachedPhotoUrl, setCachedPhotoUrl] = useState<string | null>(null);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Sayfa odaklandığında StatusBar rengini güncellemek için
   useFocusEffect(
@@ -52,6 +61,23 @@ export default function ProfileScreen() {
     }, [colorScheme])
   );
 
+  // Profil resmi cache'ini yükle
+  useEffect(() => {
+    const loadCachedPhoto = async () => {
+      if (user?.uid) {
+        try {
+          const cachedPhoto = await AsyncStorage.getItem(`profile_photo_${user.uid}`);
+          if (cachedPhoto) {
+            setCachedPhotoUrl(cachedPhoto);
+          }
+        } catch (error) {
+          console.error('Cache foto yükleme hatası:', error);
+        }
+      }
+    };
+    loadCachedPhoto();
+  }, [user]);
+
   useEffect(() => {
     const fetchUserData = async () => {
       if (user) {
@@ -59,7 +85,13 @@ export default function ProfileScreen() {
           // Önce cache'den kontrol et
           const cachedData = await AsyncStorage.getItem(`userData_${user.uid}`);
           if (cachedData) {
-            setUserData(JSON.parse(cachedData));
+            const parsedData = JSON.parse(cachedData);
+            setUserData(parsedData);
+            // Cache'den profil resmi URL'ini yükle
+            if (parsedData.photoURL) {
+              setCachedPhotoUrl(parsedData.photoURL);
+              await AsyncStorage.setItem(`profile_photo_${user.uid}`, parsedData.photoURL);
+            }
             setLoading(false);
             return;
           }
@@ -71,13 +103,22 @@ export default function ProfileScreen() {
             setUserData(data);
             // Veriyi cache'e kaydet
             await AsyncStorage.setItem(`userData_${user.uid}`, JSON.stringify(data));
+            // Profil resmi URL'ini cache'e kaydet
+            if (data.photoURL) {
+              setCachedPhotoUrl(data.photoURL);
+              await AsyncStorage.setItem(`profile_photo_${user.uid}`, data.photoURL);
+            }
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
           // Hata durumunda cache'den yükle
           const cachedData = await AsyncStorage.getItem(`userData_${user.uid}`);
           if (cachedData) {
-            setUserData(JSON.parse(cachedData));
+            const parsedData = JSON.parse(cachedData);
+            setUserData(parsedData);
+            if (parsedData.photoURL) {
+              setCachedPhotoUrl(parsedData.photoURL);
+            }
           } else {
             Alert.alert('Hata', 'Kullanıcı bilgileri yüklenirken bir hata oluştu.');
           }
@@ -146,6 +187,119 @@ export default function ProfileScreen() {
     }
   };
 
+  const handlePickImage = async () => {
+    if (!user) return;
+
+    try {
+      // İzin iste
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permissionResult.status !== 'granted') {
+        Alert.alert('İzin gerekli', 'Galeriye erişim izni vermen gerekiyor.');
+        return;
+      }
+
+      // Resim seç
+      const result = await ImagePicker.launchImageLibraryAsync({
+        // @ts-ignore - expo-image-picker API değişikliği
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.[0]) {
+        return;
+      }
+
+      const imageUri = result.assets[0].uri;
+      setIsUploadingPhoto(true);
+
+      // Resmi yükle
+      const photoURL = await uploadImageFromUri(imageUri, 'profile-pictures');
+      
+      // Firestore'da güncelle
+      await createOrUpdateUser(user.uid, { photoURL });
+      
+      // Cache'i güncelle
+      if (userData) {
+        const updatedUserData = { ...userData, photoURL };
+        setUserData(updatedUserData);
+        setCachedPhotoUrl(photoURL);
+        await AsyncStorage.setItem(`userData_${user.uid}`, JSON.stringify(updatedUserData));
+        await AsyncStorage.setItem(`profile_photo_${user.uid}`, photoURL);
+      }
+
+      Alert.alert('Başarılı', 'Profil resmin güncellendi.');
+    } catch (error: any) {
+      console.error('Profil resmi yükleme hatası:', error);
+      Alert.alert('Hata', error.message || 'Profil resmi yüklenirken bir hata oluştu.');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!user) return;
+
+    Alert.alert(
+      'Profil Resmini Kaldır',
+      'Profil resmini kaldırmak istediğinize emin misiniz?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Kaldır',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Firestore'da güncelle
+              await createOrUpdateUser(user.uid, { photoURL: undefined });
+              
+              // Cache'i güncelle
+              if (userData) {
+                const updatedUserData = { ...userData, photoURL: null };
+                setUserData(updatedUserData);
+                setCachedPhotoUrl(null);
+                await AsyncStorage.setItem(`userData_${user.uid}`, JSON.stringify(updatedUserData));
+                await AsyncStorage.removeItem(`profile_photo_${user.uid}`);
+              }
+
+              Alert.alert('Başarılı', 'Profil resmin kaldırıldı.');
+            } catch (error: any) {
+              console.error('Profil resmi kaldırma hatası:', error);
+              Alert.alert('Hata', 'Profil resmi kaldırılırken bir hata oluştu.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSaveProfile = async (fullName: string, username: string) => {
+    if (!user || !userData) return;
+
+    setIsSavingProfile(true);
+    try {
+      // Firestore'da güncelle
+      await createOrUpdateUser(user.uid, {
+        fullName: fullName.trim(),
+        username: username.trim(),
+      });
+      
+      // Cache'i güncelle
+      const updatedUserData = { ...userData, fullName: fullName.trim(), username: username.trim() };
+      setUserData(updatedUserData);
+      await AsyncStorage.setItem(`userData_${user.uid}`, JSON.stringify(updatedUserData));
+
+      setIsEditModalVisible(false);
+      Alert.alert('Başarılı', 'Profil bilgilerin güncellendi.');
+    } catch (error: any) {
+      console.error('Profil güncelleme hatası:', error);
+      Alert.alert('Hata', error.message || 'Profil güncellenirken bir hata oluştu.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   const themeStatusText = isUsingSystem
     ? 'Cihaz ayarlarını otomatik takip ediyor'
     : isDarkMode
@@ -176,9 +330,39 @@ export default function ProfileScreen() {
       <View style={[styles.headerSpacer, { height: Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0 }]} />
       
       <View style={[styles.header, { backgroundColor: theme.surface }]}>
-        <View style={[styles.avatarContainer, { backgroundColor: theme.primary + '20' }]}>
-          <MaterialCommunityIcons name="account" size={32} color={theme.primary} />
-        </View>
+        <TouchableOpacity
+          style={styles.avatarWrapper}
+          onPress={handlePickImage}
+          disabled={isUploadingPhoto}
+          activeOpacity={0.8}
+        >
+          {(cachedPhotoUrl || userData?.photoURL) ? (
+            <Image
+              source={{ uri: cachedPhotoUrl || userData?.photoURL || '' }}
+              style={styles.avatarImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={200}
+              onError={(error) => {
+                console.error('Profil resmi yüklenirken hata:', error);
+                setCachedPhotoUrl(null);
+              }}
+            />
+          ) : (
+            <View style={[styles.avatarContainer, { backgroundColor: theme.primary + '20' }]}>
+              <MaterialCommunityIcons name="account" size={32} color={theme.primary} />
+            </View>
+          )}
+          {isUploadingPhoto ? (
+            <View style={styles.avatarOverlay}>
+              <ActivityIndicator size="small" color="#FFF" />
+            </View>
+          ) : (
+            <View style={[styles.avatarEditBadge, { backgroundColor: theme.primary, borderColor: theme.surface }]}>
+              <MaterialCommunityIcons name="camera" size={16} color="#FFF" />
+            </View>
+          )}
+        </TouchableOpacity>
         <View style={styles.userInfo}>
           <Text style={[styles.name, { color: theme.text }]}>
             {userData?.fullName || user?.displayName || 'Kullanıcı'}
@@ -206,10 +390,10 @@ export default function ProfileScreen() {
         <View style={styles.content}>
           <TouchableOpacity
             style={[styles.menuItem, { backgroundColor: theme.surface }]}
-            onPress={() => {}}
+            onPress={() => setIsEditModalVisible(true)}
           >
             <MaterialCommunityIcons name="account-edit" size={24} color={theme.primary} />
-            <Text style={[styles.menuText, { color: theme.text }]}>Profili Düzenle</Text>
+            <Text style={[styles.menuText, { color: theme.text }]}>Profil Bilgileri Güncelle</Text>
             <MaterialCommunityIcons name="chevron-right" size={24} color={theme.textDim} />
           </TouchableOpacity>
 
@@ -320,10 +504,23 @@ export default function ProfileScreen() {
 
           <TouchableOpacity
             style={[styles.menuItem, { backgroundColor: theme.surface }]}
-            onPress={() => {}}
+            onPress={async () => {
+              if (user) {
+                Alert.alert('Bildirim Testi', 'FCM token kaydediliyor ve test bildirimi gönderiliyor...');
+                await registerDevicePushToken(user.uid);
+                setTimeout(async () => {
+                  const sent = await sendTestNotification(user.uid);
+                  if (sent) {
+                    Alert.alert('Başarılı', 'Test bildirimi gönderildi. Cloud Functions çalışıyorsa bildirim gelmeli.');
+                  } else {
+                    Alert.alert('Hata', 'FCM token bulunamadı veya kaydedilemedi. Console loglarını kontrol edin.');
+                  }
+                }, 2000);
+              }
+            }}
           >
             <MaterialCommunityIcons name="bell-outline" size={24} color={theme.primary} />
-            <Text style={[styles.menuText, { color: theme.text }]}>Bildirimler</Text>
+            <Text style={[styles.menuText, { color: theme.text }]}>Bildirim Testi</Text>
             <MaterialCommunityIcons name="chevron-right" size={24} color={theme.textDim} />
           </TouchableOpacity>
 
@@ -381,9 +578,193 @@ export default function ProfileScreen() {
           />
         </BlurView>
       )}
+
+      {/* Profil Düzenleme Modal */}
+      <ProfileEditModal
+        visible={isEditModalVisible}
+        onClose={() => setIsEditModalVisible(false)}
+        onSave={handleSaveProfile}
+        initialFullName={userData?.fullName || ''}
+        initialUsername={userData?.username || ''}
+        isLoading={isSavingProfile}
+        theme={theme}
+        profilePhotoUrl={cachedPhotoUrl || userData?.photoURL || null}
+        onPickImage={handlePickImage}
+        onRemovePhoto={handleRemovePhoto}
+        isUploadingPhoto={isUploadingPhoto}
+      />
     </SafeAreaView>
   );
 }
+
+// Profil Düzenleme Modal Component
+const ProfileEditModal = ({
+  visible,
+  onClose,
+  onSave,
+  initialFullName,
+  initialUsername,
+  isLoading,
+  theme,
+  profilePhotoUrl,
+  onPickImage,
+  onRemovePhoto,
+  isUploadingPhoto,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSave: (fullName: string, username: string) => void;
+  initialFullName: string;
+  initialUsername: string;
+  isLoading: boolean;
+  theme: typeof Colors.light;
+  profilePhotoUrl: string | null;
+  onPickImage: () => void;
+  onRemovePhoto: () => void;
+  isUploadingPhoto: boolean;
+}) => {
+  const [fullName, setFullName] = useState(initialFullName);
+  const [username, setUsername] = useState(initialUsername);
+
+  useEffect(() => {
+    if (visible) {
+      setFullName(initialFullName);
+      setUsername(initialUsername);
+    }
+  }, [visible, initialFullName, initialUsername]);
+
+  const handleSave = () => {
+    if (!fullName.trim()) {
+      Alert.alert('Hata', 'Ad ve soyad boş bırakılamaz.');
+      return;
+    }
+    if (!username.trim()) {
+      Alert.alert('Hata', 'Kullanıcı adı boş bırakılamaz.');
+      return;
+    }
+    onSave(fullName, username);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Profili Düzenle</Text>
+            <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
+              <MaterialCommunityIcons name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+            <View style={styles.modalForm}>
+              {/* Profil Resmi Bölümü */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Profil Resmi</Text>
+                <View style={styles.profilePhotoSection}>
+                  <View style={styles.profilePhotoContainer}>
+                    {profilePhotoUrl ? (
+                      <Image
+                        source={{ uri: profilePhotoUrl }}
+                        style={styles.modalAvatarImage}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={200}
+                        onError={(error) => {
+                          console.error('Modal profil resmi yüklenirken hata:', error);
+                        }}
+                      />
+                    ) : (
+                      <View style={[styles.modalAvatarPlaceholder, { backgroundColor: theme.primary + '20' }]}>
+                        <MaterialCommunityIcons name="account" size={32} color={theme.primary} />
+                      </View>
+                    )}
+                    {isUploadingPhoto && (
+                      <View style={styles.modalAvatarOverlay}>
+                        <ActivityIndicator size="small" color="#FFF" />
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.profilePhotoActions}>
+                    <TouchableOpacity
+                      style={[styles.profilePhotoButton, { backgroundColor: theme.primary }]}
+                      onPress={onPickImage}
+                      disabled={isUploadingPhoto}
+                    >
+                      <MaterialCommunityIcons name="camera" size={18} color="#FFF" />
+                      <Text style={styles.profilePhotoButtonText}>
+                        {isUploadingPhoto ? 'Yükleniyor...' : 'Değiştir'}
+                      </Text>
+                    </TouchableOpacity>
+                    {profilePhotoUrl && (
+                      <TouchableOpacity
+                        style={[styles.profilePhotoButton, styles.profilePhotoButtonRemove, { borderColor: theme.error }]}
+                        onPress={onRemovePhoto}
+                        disabled={isUploadingPhoto}
+                      >
+                        <MaterialCommunityIcons name="delete-outline" size={18} color={theme.error} />
+                        <Text style={[styles.profilePhotoButtonText, { color: theme.error }]}>Kaldır</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Ad ve Soyad</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
+                  placeholder="Ad ve Soyad"
+                  placeholderTextColor={theme.textDim}
+                  value={fullName}
+                  onChangeText={setFullName}
+                  autoCapitalize="words"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Kullanıcı Adı</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
+                  placeholder="kullanici_adi"
+                  placeholderTextColor={theme.textDim}
+                  value={username}
+                  onChangeText={(text) => setUsername(text.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Text style={[styles.inputHint, { color: theme.textDim }]}>
+                  Sadece küçük harf, rakam ve alt çizgi kullanılabilir
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalButtonCancel, { borderColor: theme.border }]}
+              onPress={onClose}
+              disabled={isLoading}
+            >
+              <Text style={[styles.modalButtonText, { color: theme.text }]}>İptal</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalButtonSave, { backgroundColor: theme.primary }]}
+              onPress={handleSave}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={[styles.modalButtonText, { color: '#FFF' }]}>Kaydet</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -414,12 +795,44 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E2E8F0',
     marginTop: 8,
   },
+  avatarWrapper: {
+    position: 'relative',
+    width: 60,
+    height: 60,
+  },
   avatarContainer: {
     width: 60,
     height: 60,
     borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  avatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  avatarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 30,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
   },
   userInfo: {
     marginLeft: 16,
@@ -577,6 +990,151 @@ const styles = StyleSheet.create({
   adminButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '80%',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  modalScroll: {
+    maxHeight: 400,
+  },
+  modalForm: {
+    padding: 20,
+    gap: 20,
+  },
+  inputGroup: {
+    gap: 8,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+  inputHint: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalButtonCancel: {
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  modalButtonSave: {
+    backgroundColor: '#2E7DFF',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  profilePhotoSection: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  profilePhotoContainer: {
+    position: 'relative',
+    width: 100,
+    height: 100,
+    marginBottom: 16,
+  },
+  modalAvatarImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  modalAvatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalAvatarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 50,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profilePhotoActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  profilePhotoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  profilePhotoButtonRemove: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  profilePhotoButtonText: {
+    color: '#FFF',
+    fontSize: 14,
     fontWeight: '600',
   },
 }); 

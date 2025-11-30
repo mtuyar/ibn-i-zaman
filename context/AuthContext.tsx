@@ -56,51 +56,113 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Kullanıcı durumunu dinle
   useEffect(() => {
-    const loadRememberMeSetting = async () => {
-      try {
-        const remembered = await AsyncStorage.getItem('remember_me');
-        if (remembered !== null) {
-          setRememberMe(remembered === 'true');
-        }
-      } catch (error) {
-        console.error('Remember me ayarı yüklenirken hata:', error);
-      }
-    };
+    let isInitialized = false;
 
-    loadRememberMeSetting();
+    // Remember me state'ini hemen yükle (paralel)
+    AsyncStorage.getItem('remember_me').then((remembered) => {
+      const shouldRemember = remembered === null || remembered === 'true';
+      setRememberMe(shouldRemember);
+    }).catch(console.error);
 
-    // Firebase Auth değişikliklerini doğrudan dinle
+    // Auth state listener'ı hemen başlat (Firebase'in cached user'ını hemen alır)
     const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      if (!isInitialized) {
+        isInitialized = true;
+        
+        // İlk yüklemede otomatik girişi dene (eğer kullanıcı yoksa)
+        if (!authUser) {
+          try {
+            // Paralel olarak remember_me ve credentials'ı al
+            const [remembered, savedEmail, savedPassword] = await Promise.all([
+              AsyncStorage.getItem('remember_me'),
+              AsyncStorage.getItem('saved_email'),
+              AsyncStorage.getItem('saved_password'),
+            ]);
+            
+            const shouldRemember = remembered === null || remembered === 'true';
+            setRememberMe(shouldRemember);
+
+            // Eğer remember_me true ise ve kayıtlı email/password varsa otomatik giriş yap
+            if (shouldRemember && savedEmail && savedPassword) {
+              console.log('🔄 Attempting auto-login with saved credentials...');
+              // Otomatik girişi arka planda yap, await etme (hızlı yükleme için)
+              AuthService.signIn(savedEmail, savedPassword).catch((error: any) => {
+                console.log('⚠️ Auto-login failed, clearing saved credentials:', error.message);
+                AsyncStorage.removeItem('saved_email');
+                AsyncStorage.removeItem('saved_password');
+              });
+              // Otomatik giriş başarılı olursa onAuthStateChanged tekrar çağrılacak
+              return;
+            }
+          } catch (error) {
+            console.error('Auto-login hatası:', error);
+          }
+        }
+      }
+
+      console.log('Auth state changed:', authUser ? `User logged in: ${authUser.email}` : 'User logged out');
       setUser(authUser);
+      // isLoading'i hemen false yap (blocking işlemlerden önce)
       setIsLoading(false);
       
-      // Kullanıcı bilgilerini önbelleğe kaydet
+      // Kullanıcı bilgilerini önbelleğe kaydet (async, blocking yapma)
       if (authUser) {
-        const userData = {
-          uid: authUser.uid,
-          email: authUser.email,
-          displayName: authUser.displayName,
-          photoURL: authUser.photoURL,
-        };
-        AsyncStorage.setItem('user_data', JSON.stringify(userData)).catch(console.error);
+        // AsyncStorage işlemlerini paralel yap
+        Promise.all([
+          AsyncStorage.setItem('user_data', JSON.stringify({
+            uid: authUser.uid,
+            email: authUser.email,
+            displayName: authUser.displayName,
+            photoURL: authUser.photoURL,
+          })),
+          // Admin kontrolünü arka planda yap
+          isUserAdmin(authUser.uid).then(setIsAdmin).catch(() => setIsAdmin(false)),
+        ]).catch(console.error);
         
-        // Kullanıcı giriş yaptığında global mesaj dinleyiciyi başlat
+        // Kullanıcı giriş yaptığında global mesaj dinleyiciyi başlat (async, blocking yapma)
         messageListenerCleanupRef.current = initializeGlobalMessageListener(authUser.uid);
-        // FCM cihaz tokenını kaydet
-        registerDevicePushToken(authUser.uid).catch(console.error);
-
-        const adminStatus = await isUserAdmin(authUser.uid);
-        setIsAdmin(adminStatus);
+        // FCM cihaz tokenını kaydet (async, blocking yapma)
+        // Token kaydını birkaç kez dene (permissions hazır olana kadar)
+        const registerToken = async () => {
+          try {
+            console.log('🔔 FCM token kaydı başlatılıyor...');
+            await registerDevicePushToken(authUser.uid);
+            console.log('✅ FCM token başarıyla kaydedildi');
+            
+            // Token'ın gerçekten kaydedildiğini kontrol et
+            const { doc, getDoc } = await import('firebase/firestore');
+            const { db } = await import('../config/firebase');
+            const userDoc = await getDoc(doc(db, 'users', authUser.uid));
+            const userData = userDoc.data();
+            if (userData?.fcmToken) {
+              console.log('✅ FCM token Firestore\'da mevcut:', userData.fcmToken.substring(0, 20) + '...');
+            } else {
+              console.warn('⚠️ FCM token Firestore\'da bulunamadı!');
+            }
+          } catch (error) {
+            console.error('❌ FCM token kayıt hatası:', error);
+            // 3 saniye sonra tekrar dene
+            setTimeout(registerToken, 3000);
+          }
+        };
+        
+        // İlk deneme
+        setTimeout(registerToken, 2000);
+        // Yedek deneme (5 saniye sonra)
+        setTimeout(registerToken, 5000);
       } else {
-        // Kullanıcı çıkış yaptığında dinleyiciyi temizle
+        // Kullanıcı çıkış yaptığında dinleyiciyi temizle ve cache'i temizle
         messageListenerCleanupRef.current();
         setIsAdmin(false);
+        AsyncStorage.removeItem('user_data').catch(console.error);
       }
     });
 
     // Component kaldırıldığında dinleyiciyi temizle
     return () => {
-      unsubscribe();
+      if (unsubscribe) {
+        unsubscribe();
+      }
       messageListenerCleanupRef.current();
     };
   }, []);
@@ -111,16 +173,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsSigningIn(true);
     
     try {
-      // AuthService'deki signIn metodunu kullan
+      // Giriş yap
       await AuthService.signIn(email, password);
-      // Beni hatırla durumu için
+      
+      // Beni hatırla durumunu kaydet
       if (remember) {
         await AsyncStorage.setItem('remember_me', 'true');
+        // Email ve password'u kaydet (otomatik giriş için)
+        await AsyncStorage.setItem('saved_email', email);
+        await AsyncStorage.setItem('saved_password', password);
+        setRememberMe(true);
+        console.log('✅ Login successful, credentials saved for auto-login');
       } else {
-        await AsyncStorage.removeItem('remember_me');
+        // Remember false ise, kayıtlı bilgileri temizle
+        await AsyncStorage.setItem('remember_me', 'false');
+        await AsyncStorage.removeItem('saved_email');
+        await AsyncStorage.removeItem('saved_password');
+        setRememberMe(false);
+        console.log('✅ Login successful, credentials not saved');
       }
     } catch (error: any) {
       console.error('Oturum açma hatası:', error);
+      // Hata durumunda kayıtlı bilgileri temizle
+      await AsyncStorage.removeItem('saved_email');
+      await AsyncStorage.removeItem('saved_password');
       setError(error.message || 'Oturum açma sırasında bir hata oluştu.');
       throw error;
     } finally {
@@ -169,7 +245,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       // Mesaj dinleyiciyi temizle
       messageListenerCleanupRef.current();
+      // Kayıtlı bilgileri temizle
+      await AsyncStorage.removeItem('remember_me');
+      await AsyncStorage.removeItem('saved_email');
+      await AsyncStorage.removeItem('saved_password');
+      setRememberMe(true);
+      // Firebase Auth'dan çıkış yap
       await AuthService.logOut();
+      console.log('✅ Logout successful, all credentials cleared');
     } catch (error: any) {
       console.error('Oturum kapatma hatası:', error);
       setError(error.message || 'Oturum kapatma sırasında bir hata oluştu.');

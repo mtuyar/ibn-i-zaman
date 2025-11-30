@@ -1,0 +1,41 @@
+diff --git a/node_modules/react-native/src/private/components/virtualview/VirtualView.js b/node_modules/react-native/src/private/components/virtualview/VirtualView.js
+index 051e596..3800f85 100644
+--- a/node_modules/react-native/src/private/components/virtualview/VirtualView.js
++++ b/node_modules/react-native/src/private/components/virtualview/VirtualView.js
+@@ -90,24 +90,20 @@ function createVirtualView(initialState: State): VirtualViewComponent {
+               thresholdRect: event.nativeEvent.thresholdRect,
+             });
+ 
+-      match (mode) {
+-        VirtualViewMode.Visible => {
++      if (mode === VirtualViewMode.Visible) {
++        setState(NotHidden);
++        emitModeChange?.();
++      } else if (mode === VirtualViewMode.Prerender) {
++        startTransition(() => {
+           setState(NotHidden);
+           emitModeChange?.();
+-        }
+-        VirtualViewMode.Prerender => {
+-          startTransition(() => {
+-            setState(NotHidden);
+-            emitModeChange?.();
+-          });
+-        }
+-        VirtualViewMode.Hidden => {
+-          const {height} = event.nativeEvent.targetRect;
+-          startTransition(() => {
+-            setState(height as HiddenHeight);
+-            emitModeChange?.();
+-          });
+-        }
++        });
++      } else if (mode === VirtualViewMode.Hidden) {
++        const {height} = event.nativeEvent.targetRect;
++        startTransition(() => {
++          setState(height as HiddenHeight);
++          emitModeChange?.();
++        });
+       }
+     };
+ 

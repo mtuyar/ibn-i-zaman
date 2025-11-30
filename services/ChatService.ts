@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import { getUser } from '../services/UserService';
+import { createMessageNotification } from './AppNotificationService';
 
 // Tip tanımlamaları
 export interface Chat {
@@ -308,6 +309,42 @@ export const sendMessage = async (
         updatedAt: now,
         unreadCount
       });
+
+      // Bildirim oluştur (Cloud Functions yedek olarak client-side'da da oluştur)
+      // Cloud Functions deploy edilmişse orada da oluşturulacak, bu yedek olarak çalışır
+      try {
+        console.log('ChatService: Bildirim oluşturma başlatılıyor...');
+        const sender = await getUser(senderId);
+        const senderName = sender?.displayName || sender?.fullName || 'Birisi';
+        console.log('ChatService: Gönderen bilgisi alındı:', senderName);
+        
+        const recipients = chatData.participants.filter((participant: { userId: string }) => participant.userId !== senderId);
+        console.log('ChatService: Alıcı sayısı:', recipients.length, recipients.map((p: any) => p.userId));
+        
+        if (recipients.length === 0) {
+          console.log('ChatService: Alıcı yok, bildirim oluşturulmayacak');
+        } else {
+          // Tüm bildirimleri paralel oluştur
+          const notificationPromises = recipients.map((participant: { userId: string }) => {
+            console.log(`ChatService: Bildirim oluşturuluyor - userId: ${participant.userId}`);
+            return createMessageNotification(
+              participant.userId,
+              senderName,
+              content,
+              chatId
+            ).catch((error) => {
+              console.error(`ChatService: Bildirim oluşturma hatası (userId: ${participant.userId}):`, error);
+              // Hata olsa bile devam et
+            });
+          });
+          
+          await Promise.all(notificationPromises);
+          console.log(`ChatService: ${notificationPromises.length} bildirim oluşturuldu`);
+        }
+      } catch (error) {
+        console.error('ChatService: Bildirim oluşturma genel hatası:', error);
+        // Bildirim hatası mesaj göndermeyi engellemez
+      }
     }
 
     return messageRef.id;

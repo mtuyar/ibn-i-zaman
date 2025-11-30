@@ -1,18 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Animated,
-    Image,
     StyleSheet,
     Text,
     TouchableOpacity,
     useColorScheme,
     View
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Swipeable } from 'react-native-gesture-handler';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '../constants/Colors';
 import { useAuth } from '../context/AuthContext';
 import { Chat } from '../services/ChatService';
+import { getUser } from '../services/UserService';
 
 interface ChatItemProps {
   chat: Chat;
@@ -26,7 +28,45 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onSelect, onDelete }) 
   const { user } = useAuth();
   const lastMessage = chat.lastMessage;
   const unread = user ? (chat.unreadCount?.[user.uid] || 0) : 0;
+  const [cachedPhotoUrl, setCachedPhotoUrl] = useState<string | null>(chat.photoURL || null);
   // const isOnline = chat.type === 'private' && chat.participants?.some(p => p.userId !== user?.uid && p.status === 'online');
+
+  // Profil resmini cache'den yükle
+  useEffect(() => {
+    const loadPhoto = async () => {
+      if (chat.photoURL) {
+        // Önce mevcut URL'i kullan
+        setCachedPhotoUrl(chat.photoURL);
+        return;
+      }
+      
+      if (chat.type === 'private' && user?.uid) {
+        // Özel sohbetse diğer kullanıcının profil resmini yükle
+        const otherUserId = chat.participants?.find(p => p.userId !== user.uid)?.userId;
+        if (!otherUserId) return;
+        
+        try {
+          // Önce cache'den kontrol et
+          const cachedPhoto = await AsyncStorage.getItem(`profile_photo_${otherUserId}`);
+          if (cachedPhoto) {
+            setCachedPhotoUrl(cachedPhoto);
+            return;
+          }
+          
+          // Cache'de yoksa Firestore'dan çek
+          const userData = await getUser(otherUserId);
+          if (userData?.photoURL) {
+            setCachedPhotoUrl(userData.photoURL);
+            await AsyncStorage.setItem(`profile_photo_${otherUserId}`, userData.photoURL);
+          }
+        } catch (error) {
+          console.error('Profil resmi yükleme hatası:', error);
+        }
+      }
+    };
+    
+    loadPhoto();
+  }, [chat.photoURL, chat.type, chat.participants, user?.uid]);
 
   // Swipe ile silme butonu
   const renderRightActions = (
@@ -63,8 +103,14 @@ export const ChatItem: React.FC<ChatItemProps> = ({ chat, onSelect, onDelete }) 
         activeOpacity={0.7}
       >
         <View style={styles.avatarContainer}>
-          {chat.photoURL ? (
-            <Image source={{ uri: chat.photoURL }} style={styles.avatar} />
+          {cachedPhotoUrl ? (
+            <Image
+              source={{ uri: cachedPhotoUrl }}
+              style={styles.avatar}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={200}
+            />
           ) : (
             <View style={[styles.avatarPlaceholder, { backgroundColor: theme.border }]}>
               <Text style={[styles.avatarText, { color: theme.text }]}>{chat.name?.charAt(0).toUpperCase() || '?'}</Text>

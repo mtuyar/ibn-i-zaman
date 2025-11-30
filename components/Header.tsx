@@ -1,9 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
-import { Dimensions, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '../constants/Colors';
+import { useAuth } from '../context/AuthContext';
+import {
+  Notification,
+  deleteNotification,
+  getUnreadNotificationCount,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  subscribeToUserNotifications,
+} from '../services/AppNotificationService';
 
 const { width } = Dimensions.get('window');
 
@@ -18,29 +27,20 @@ interface HeaderProps {
   onRightButtonPress?: () => void;
 }
 
-const notifications = [
-  {
-    id: 1,
-    title: 'Yeni Program Eklendi',
-    description: 'Ahlak Atölyesi programı eklendi.',
-    time: '2 saat önce',
-    type: 'program',
-  },
-  {
-    id: 2,
-    title: 'Program Değişikliği',
-    description: 'Hasbihal İstasyonu programı iptal edildi.',
-    time: '1 gün önce',
-    type: 'warning',
-  },
-  {
-    id: 3,
-    title: 'Yeni Duyuru',
-    description: 'Yeni bir duyuru eklendi.',
-    time: '3 saat önce',
-    type: 'announcement',
-  },
-];
+// Zaman formatı
+const formatTime = (date: Date): string => {
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return 'Az önce';
+  if (minutes < 60) return `${minutes} dakika önce`;
+  if (hours < 24) return `${hours} saat önce`;
+  if (days < 7) return `${days} gün önce`;
+  return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+};
 
 export default function Header({ 
   title, 
@@ -55,7 +55,11 @@ export default function Header({
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Android için StatusBar rengini ayarla
   useEffect(() => {
@@ -74,29 +78,100 @@ export default function Header({
     }
   }, [colorScheme, isProfileScreen]);
 
-  const getIcon = (type: string) => {
+  // Bildirimleri dinle
+  useEffect(() => {
+    if (!user?.uid || !showNotification) {
+      console.log('Header: Bildirim dinleme atlandı - user:', user?.uid, 'showNotification:', showNotification);
+      return;
+    }
+
+    console.log('Header: Bildirim dinleme başlatılıyor - userId:', user.uid);
+    setIsLoading(true);
+    const unsubscribe = subscribeToUserNotifications(user.uid, (notifs) => {
+      console.log('Header: Bildirimler güncellendi:', notifs.length, 'bildirim, okunmamış:', notifs.filter(n => !n.read).length);
+      console.log('Header: Bildirim detayları:', notifs.map(n => ({ id: n.id, type: n.type, read: n.read, title: n.title })));
+      setNotifications(notifs);
+      const unread = notifs.filter(n => !n.read).length;
+      console.log('Header: Unread count:', unread);
+      setUnreadCount(unread);
+      setIsLoading(false);
+    });
+
+    return () => {
+      console.log('Header: Bildirim dinleme temizleniyor');
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [user?.uid, showNotification]);
+
+  const getIcon = (type: Notification['type']) => {
     switch (type) {
       case 'program':
         return 'calendar';
-      case 'warning':
-        return 'alert-circle';
+      case 'message':
+        return 'chatbubble';
       case 'announcement':
         return 'megaphone';
+      case 'urgent_announcement':
+        return 'alert-circle';
       default:
         return 'notifications';
     }
   };
 
-  const getColor = (type: string) => {
+  const getColor = (type: Notification['type']) => {
     switch (type) {
       case 'program':
         return '#3498DB';
-      case 'warning':
-        return '#E74C3C';
+      case 'message':
+        return '#2E7DFF';
       case 'announcement':
         return '#2ECC71';
+      case 'urgent_announcement':
+        return '#E74C3C';
       default:
         return '#7F8C8D';
+    }
+  };
+
+  const handleNotificationPress = async (notification: Notification) => {
+    if (!notification.read) {
+      try {
+        await markNotificationAsRead(notification.id);
+      } catch (error) {
+        console.error('Bildirim okundu işaretleme hatası:', error);
+      }
+    }
+  };
+
+  const handleDeleteNotification = async (notificationId: string) => {
+    Alert.alert(
+      'Bildirimi Sil',
+      'Bu bildirimi silmek istediğinize emin misiniz?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Sil',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteNotification(notificationId);
+            } catch (error) {
+              Alert.alert('Hata', 'Bildirim silinirken bir hata oluştu.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMarkAllAsRead = async () => {
+    if (!user?.uid) return;
+    try {
+      await markAllNotificationsAsRead(user.uid);
+    } catch (error) {
+      Alert.alert('Hata', 'Bildirimler okundu olarak işaretlenirken bir hata oluştu.');
     }
   };
 
@@ -167,9 +242,11 @@ export default function Header({
               style={styles.notificationButton}
               onPress={() => setIsModalVisible(true)}>
               <Ionicons name="notifications-outline" size={22} color="#FFF" />
-              <View style={[styles.notificationBadge, { backgroundColor: theme.error, borderColor: theme.surface }]}>
-                <Text style={styles.badgeText}>{notifications.length}</Text>
-              </View>
+              {unreadCount > 0 && (
+                <View style={[styles.notificationBadge, { backgroundColor: theme.error, borderColor: theme.surface }]}>
+                  <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount.toString()}</Text>
+                </View>
+              )}
             </TouchableOpacity>
           ) : (
             <View style={styles.sideContainer} />
@@ -188,36 +265,87 @@ export default function Header({
           activeOpacity={1}
           onPress={() => setIsModalVisible(false)}
         >
-          <View style={[styles.modalContent, { backgroundColor: theme.card }] }>
+          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>Bildirimler</Text>
-              <TouchableOpacity onPress={() => setIsModalVisible(false)}>
-                <Ionicons name="close" size={24} color={theme.text} />
-              </TouchableOpacity>
+              <View style={styles.modalHeaderActions}>
+                {unreadCount > 0 && (
+                  <TouchableOpacity
+                    onPress={handleMarkAllAsRead}
+                    style={styles.markAllReadButton}
+                  >
+                    <Text style={[styles.markAllReadText, { color: theme.primary }]}>
+                      Tümünü Okundu İşaretle
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setIsModalVisible(false)}>
+                  <Ionicons name="close" size={24} color={theme.text} />
+                </TouchableOpacity>
+              </View>
             </View>
             <ScrollView style={styles.modalScroll}>
-              {notifications.map((notification) => (
-                <View key={notification.id} style={[styles.notificationItem, { borderBottomColor: theme.border }]}>
-                  <View style={[styles.notificationIcon, { backgroundColor: `${getColor(notification.type)}15` }]}>
-                    <Ionicons 
-                      name={getIcon(notification.type)} 
-                      size={20} 
-                      color={getColor(notification.type)} 
-                    />
-                  </View>
-                  <View style={styles.notificationContent}>
-                    <Text style={[styles.notificationTitle, { color: theme.text }]}>
-                      {notification.title}
-                    </Text>
-                    <Text style={[styles.notificationDescription, { color: theme.subtitle }]}>
-                      {notification.description}
-                    </Text>
-                    <Text style={[styles.notificationTime, { color: theme.placeholder }]}>
-                      {notification.time}
-                    </Text>
-                  </View>
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={theme.primary} />
                 </View>
-              ))}
+              ) : notifications.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="notifications-off-outline" size={48} color={theme.placeholder} />
+                  <Text style={[styles.emptyText, { color: theme.textDim }]}>
+                    Henüz bildiriminiz yok
+                  </Text>
+                </View>
+              ) : (
+                notifications.map((notification) => (
+                  <TouchableOpacity
+                    key={notification.id}
+                    style={[
+                      styles.notificationItem,
+                      { 
+                        borderBottomColor: theme.border,
+                        backgroundColor: notification.read ? 'transparent' : theme.primary + '08',
+                      }
+                    ]}
+                    onPress={() => handleNotificationPress(notification)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.notificationIcon, { backgroundColor: `${getColor(notification.type)}15` }]}>
+                      <Ionicons 
+                        name={getIcon(notification.type) as any} 
+                        size={20} 
+                        color={getColor(notification.type)} 
+                      />
+                    </View>
+                    <View style={styles.notificationContent}>
+                      <View style={styles.notificationHeader}>
+                        <Text style={[
+                          styles.notificationTitle,
+                          { color: theme.text },
+                          !notification.read && styles.notificationTitleUnread
+                        ]}>
+                          {notification.title}
+                        </Text>
+                        {!notification.read && (
+                          <View style={[styles.unreadDot, { backgroundColor: theme.primary }]} />
+                        )}
+                      </View>
+                      <Text style={[styles.notificationDescription, { color: theme.textDim }]}>
+                        {notification.body}
+                      </Text>
+                      <Text style={[styles.notificationTime, { color: theme.placeholder }]}>
+                        {formatTime(notification.createdAt)}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => handleDeleteNotification(notification.id)}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={theme.textDim} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
           </View>
         </TouchableOpacity>
@@ -262,20 +390,21 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     position: 'absolute',
-    top: 0,
-    right: 0,
+    top: -2,
+    right: -2,
     backgroundColor: '#FF6B6B',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: '#FFF',
+    paddingHorizontal: 4,
   },
   badgeText: {
     color: '#FFF',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: 'bold',
   },
   modalOverlay: {
@@ -308,6 +437,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  modalHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  markAllReadButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  markAllReadText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   modalTitle: {
     fontSize: Platform.OS === 'ios' ? 20 : 18,
     fontWeight: '600',
@@ -319,6 +461,7 @@ const styles = StyleSheet.create({
   notificationItem: {
     flexDirection: 'row',
     paddingVertical: 12,
+    paddingHorizontal: 4,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
@@ -333,11 +476,25 @@ const styles = StyleSheet.create({
   notificationContent: {
     flex: 1,
   },
+  notificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   notificationTitle: {
     fontSize: Platform.OS === 'ios' ? 16 : 14,
     fontWeight: '600',
     color: '#2C3E50',
-    marginBottom: 4,
+    flex: 1,
+  },
+  notificationTitleUnread: {
+    fontWeight: '700',
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 8,
   },
   notificationDescription: {
     fontSize: Platform.OS === 'ios' ? 14 : 13,
@@ -348,6 +505,26 @@ const styles = StyleSheet.create({
   notificationTime: {
     fontSize: Platform.OS === 'ios' ? 12 : 11,
     color: '#95A5A6',
+  },
+  deleteButton: {
+    padding: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    textAlign: 'center',
   },
   analyticsButton: {
     width: 36,

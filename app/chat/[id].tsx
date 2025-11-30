@@ -7,11 +7,11 @@ import {
     AppState,
     Dimensions,
     FlatList,
-    Image,
     Keyboard,
     KeyboardAvoidingView,
     Modal,
     Platform,
+    ScrollView,
     StatusBar,
     Text,
     TextInput,
@@ -19,6 +19,7 @@ import {
     useColorScheme,
     View
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
@@ -37,6 +38,7 @@ import {
     UserStatus
 } from '../../services/UserStatusService';
 import { chatDetailStyles } from '../styles/chatDetail.styles';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -63,6 +65,7 @@ export default function ChatDetailScreen() {
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [senderPhotos, setSenderPhotos] = useState<Record<string, string | null>>({});
 
   // chat ID'si değiştiğinde çalışacak ana yükleme fonksiyonu
   useEffect(() => {
@@ -71,10 +74,57 @@ export default function ChatDetailScreen() {
     let isMounted = true;
 
     // Sohbet mesajlarını dinle
-    unsubscribeMessagesRef.current = subscribeToMessages(id as string, (newMessages) => {
+    unsubscribeMessagesRef.current = subscribeToMessages(id as string, async (newMessages) => {
       if (isMounted) {
         setMessages(newMessages);
         setIsLoading(false);
+
+        // Mesaj gönderen kullanıcıların profil resimlerini yükle
+        const uniqueSenderIds = Array.from(new Set(newMessages.map(m => m.senderId)));
+        const photos: Record<string, string | null> = {};
+        
+        for (const senderId of uniqueSenderIds) {
+          if (senderId === user.uid) {
+            // Kendi profil resmini cache'den al
+            try {
+              const cachedPhoto = await AsyncStorage.getItem(`profile_photo_${senderId}`);
+              if (cachedPhoto) {
+                photos[senderId] = cachedPhoto;
+              } else {
+                // Cache'de yoksa Firestore'dan çek
+                const senderData = await getUser(senderId);
+                if (senderData?.photoURL) {
+                  photos[senderId] = senderData.photoURL;
+                  await AsyncStorage.setItem(`profile_photo_${senderId}`, senderData.photoURL);
+                } else {
+                  photos[senderId] = null;
+                }
+              }
+            } catch (error) {
+              photos[senderId] = null;
+            }
+          } else {
+            // Diğer kullanıcıların profil resimlerini cache'den veya Firestore'dan al
+            try {
+              const cachedPhoto = await AsyncStorage.getItem(`profile_photo_${senderId}`);
+              if (cachedPhoto) {
+                photos[senderId] = cachedPhoto;
+              } else {
+                const senderData = await getUser(senderId);
+                if (senderData?.photoURL) {
+                  photos[senderId] = senderData.photoURL;
+                  await AsyncStorage.setItem(`profile_photo_${senderId}`, senderData.photoURL);
+                } else {
+                  photos[senderId] = null;
+                }
+              }
+            } catch (error) {
+              photos[senderId] = null;
+            }
+          }
+        }
+        
+        setSenderPhotos(prev => ({ ...prev, ...photos }));
 
         // Yeni mesaj varsa ve en alttaysa otomatik kaydır
         if (newMessages.length > 0) {
@@ -212,17 +262,87 @@ export default function ChatDetailScreen() {
     }
   }, []);
 
+  // Tarih formatı (WhatsApp gibi)
+  const formatDateHeader = useCallback((date: Date) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (messageDate.getTime() === today.getTime()) {
+      return 'Bugün';
+    } else if (messageDate.getTime() === yesterday.getTime()) {
+      return 'Dün';
+    } else {
+      return date.toLocaleDateString('tr-TR', { 
+        day: 'numeric', 
+        month: 'long',
+        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+      });
+    }
+  }, []);
+
+  // Mesajları tarih ayırıcıları ile grupla
+  const groupedMessages = useMemo(() => {
+    const grouped: Array<{ type: 'date' | 'message'; date?: Date; message?: Message }> = [];
+    let lastDate: Date | null = null;
+
+    messages.forEach((message) => {
+      const messageDate = message.createdAt?.toDate ? message.createdAt.toDate() : new Date(message.createdAt);
+      const messageDateOnly = new Date(messageDate.getFullYear(), messageDate.getMonth(), messageDate.getDate());
+      
+      if (!lastDate || lastDate.getTime() !== messageDateOnly.getTime()) {
+        grouped.push({ type: 'date', date: messageDateOnly });
+        lastDate = messageDateOnly;
+      }
+      
+      grouped.push({ type: 'message', message });
+    });
+
+    return grouped;
+  }, [messages]);
+
   // Mesaj renderleme - useCallback ile optimize edildi
   const renderMessage = useCallback(({ item }: { item: Message }) => {
     const isSent = item.senderId === user?.uid;
+    const senderPhoto = senderPhotos[item.senderId];
     
     return (
       <View style={{
         flexDirection: 'row',
         justifyContent: isSent ? 'flex-end' : 'flex-start',
-        marginVertical: 2,
+        alignItems: 'flex-end',
+        marginVertical: 4,
         paddingHorizontal: 12,
+        gap: 8,
       }}>
+        {!isSent && (
+          <View style={{ width: 32, height: 32, marginBottom: 4 }}>
+            {senderPhoto ? (
+              <Image
+                source={{ uri: senderPhoto }}
+                style={{ width: 32, height: 32, borderRadius: 16 }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={200}
+              />
+            ) : (
+              <View style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                backgroundColor: theme.border,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}>
+                <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>
+                  {otherUser?.fullName?.charAt(0).toUpperCase() || otherUser?.displayName?.charAt(0).toUpperCase() || '?'}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
         <View style={{
           maxWidth: '75%',
           backgroundColor: isSent ? theme.primary : theme.card,
@@ -231,8 +351,6 @@ export default function ChatDetailScreen() {
           borderBottomLeftRadius: isSent ? 18 : 4,
           paddingHorizontal: 16,
           paddingVertical: 10,
-          marginLeft: isSent ? 40 : 0,
-          marginRight: isSent ? 0 : 40,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 1 },
           shadowOpacity: 0.04,
@@ -244,9 +362,35 @@ export default function ChatDetailScreen() {
             {formatMessageTime(item.createdAt)}
           </Text>
         </View>
+        {isSent && (
+          <View style={{ width: 32, height: 32, marginBottom: 4 }}>
+            {senderPhoto ? (
+              <Image
+                source={{ uri: senderPhoto }}
+                style={{ width: 32, height: 32, borderRadius: 16 }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={200}
+              />
+            ) : (
+              <View style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                backgroundColor: theme.primary + '30',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}>
+                <Text style={{ color: theme.primary, fontSize: 14, fontWeight: '600' }}>
+                  {user?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || '?'}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
     );
-  }, [user?.uid, formatMessageTime, theme]);
+  }, [user?.uid, formatMessageTime, theme, senderPhotos, otherUser]);
 
   // Mesaj listesi için optimizasyon
   const keyExtractor = useCallback((item: Message) => item.id, []);
@@ -307,17 +451,37 @@ export default function ChatDetailScreen() {
           <Text style={{ marginTop: 16, color: theme.text, fontSize: 16, fontWeight: '500' }}>Sohbet yükleniyor...</Text>
         </View>
       ) : (
-        // Mesaj Listesi */}
-        <FlatList
+        <>
+          {/* Mesaj Listesi */}
+          <FlatList
           ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={keyExtractor}
+          data={groupedMessages}
+          renderItem={({ item }) => {
+            if (item.type === 'date') {
+              return (
+                <View style={{ alignItems: 'center', marginVertical: 16 }}>
+                  <View style={{
+                    backgroundColor: theme.border + '40',
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 12,
+                  }}>
+                    <Text style={{ color: theme.textDim, fontSize: 12, fontWeight: '600' }}>
+                      {formatDateHeader(item.date!)}
+                    </Text>
+                  </View>
+                </View>
+              );
+            }
+            return renderMessage({ item: item.message! });
+          }}
+          keyExtractor={(item, index) => item.type === 'date' ? `date-${item.date?.getTime()}` : item.message?.id || `msg-${index}`}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingVertical: 8, paddingBottom: 80 }}
           ListEmptyComponent={ListEmptyComponent}
           removeClippedSubviews={Platform.OS === 'android'}
         />
+        </>
       )}
 
       {/* Mesaj Yazma Alanı */}
@@ -374,13 +538,79 @@ export default function ChatDetailScreen() {
         onRequestClose={() => setEmojiPickerVisible(false)}
       >
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-          <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 8, minHeight: 320 }}>
-            {/* Burada gerçek emoji picker bileşeni kullanılacak. Örnek: */}
-            {/* <EmojiPicker onEmojiSelected={emoji => { setNewMessage(newMessage + emoji.native); setEmojiPickerVisible(false); }} /> */}
-            <Text style={{ textAlign: 'center', color: theme.textDim, marginVertical: 16 }}>Buraya emoji picker entegre edilecek</Text>
-            <TouchableOpacity onPress={() => setEmojiPickerVisible(false)} style={{ alignSelf: 'center', marginTop: 12 }}>
-              <Text style={{ color: theme.primary, fontWeight: 'bold', fontSize: 16 }}>Kapat</Text>
-            </TouchableOpacity>
+          <View style={{ backgroundColor: theme.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, maxHeight: '50%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: theme.text }}>Emoji Seç</Text>
+              <TouchableOpacity onPress={() => setEmojiPickerVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 300 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {Array.from(new Set([
+                  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
+                  '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚',
+                  '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩',
+                  '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣',
+                  '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬',
+                  '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗',
+                  '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬', '🙄', '😯',
+                  '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐',
+                  '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈',
+                  '👿', '👹', '👺', '🤡', '💩', '👻', '💀', '☠️', '👽', '👾',
+                  '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿',
+                  '😾', '👋', '🤚', '🖐', '✋', '🖖', '👌', '🤏', '✌️', '🤞',
+                  '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍',
+                  '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝',
+                  '🙏', '✍️', '💪', '🦾', '🦿', '🦵', '🦶', '👂', '🦻', '👃',
+                  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔',
+                  '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️',
+                  '✝️', '☪️', '🕉', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐',
+                  '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐',
+                  '♑', '♒', '♓', '🆔', '⚛️', '🉑', '☢️', '☣️', '📴', '📳',
+                  '🈶', '🈚', '🈸', '🈺', '🈷️', '✴️', '🆚', '💮', '🉐', '㊙️',
+                  '㊗️', '🈴', '🈵', '🈹', '🈲', '🅰️', '🅱️', '🆎', '🆑', '🅾️',
+                  '🆘', '❌', '⭕', '🛑', '⛔', '📛', '🚫', '💯', '💢', '♨️',
+                  '🚷', '🚯', '🚳', '🚱', '🔞', '📵', '🚭', '❗', '❕', '❓',
+                  '❔', '‼️', '⁉️', '🔅', '🔆', '〽️', '⚠️', '🚸', '🔱', '⚜️',
+                  '🔰', '♻️', '✅', '🈯', '💹', '❇️', '✳️', '❎', '🌐', '💠',
+                  'Ⓜ️', '🌀', '💤', '🏧', '🚾', '♿', '🅿️', '🈳', '🈂️', '🛂',
+                  '🛃', '🛄', '🛅', '🚹', '🚺', '🚼', '🚻', '🚮', '🎦', '📶',
+                  '🈁', '🔣', 'ℹ️', '🔤', '🔡', '🔠', '🆖', '🆗', '🆙', '🆒',
+                  '🆕', '🆓', '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣',
+                  '8️⃣', '9️⃣', '🔟', '🔢', '#️⃣', '*️⃣', '▶️', '⏸', '⏯', '⏹',
+                  '⏺', '⏭', '⏮', '⏩', '⏪', '⏫', '⏬', '◀️', '🔼', '🔽',
+                  '➡️', '⬅️', '⬆️', '⬇️', '↗️', '↘️', '↙️', '↖️', '↕️', '↔️',
+                  '↪️', '↩️', '⤴️', '⤵️', '🔀', '🔁', '🔂', '🔄', '🔃', '🎵',
+                  '🎶', '➕', '➖', '➗', '✖️', '💲', '💱', '™️', '©️', '®️',
+                  '〰️', '➰', '➿', '🔚', '🔙', '🔛', '🔜', '🔝', '✔️', '☑️',
+                  '🔘', '⚪', '⚫', '🔴', '🔵', '🟠', '🟡', '🟢', '🟣', '🟤',
+                  '🔶', '🔷', '🔸', '🔹', '🔺', '🔻', '🔳', '🔲', '▪️', '▫️',
+                  '◾', '◽', '◼️', '◻️', '🟥', '🟧', '🟨', '🟩', '🟦', '🟪',
+                  '🟫', '⬛', '⬜', '🔈', '🔇', '🔉', '🔊', '🔔', '🔕', '📣',
+                  '📢', '💬', '💭', '🗯', '♠️', '♣️', '♥️', '♦️', '🃏', '🎴',
+                  '🀄', '🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘',
+                  '🕙', '🕚', '🕛', '🕜', '🕝', '🕞', '🕟', '🕠', '🕡', '🕢',
+                  '🕣', '🕤', '🕥', '🕦', '🕧'
+                ])).map((emoji, index) => (
+                  <TouchableOpacity
+                    key={`emoji-${index}-${emoji}`}
+                    onPress={() => {
+                      setNewMessage(prev => prev + emoji);
+                    }}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ fontSize: 28 }}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>

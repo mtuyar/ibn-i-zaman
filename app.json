@@ -13,6 +13,7 @@
       "icon": "./assets/images/icon.png",
       "buildNumber": "2",
       "bundleIdentifier": "com.mtuyarr.ibnizaman",
+      "bitcode": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -49,7 +50,15 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/favicon.png",
+          "color": "#ffffff"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,41 +1,56 @@
-import { collection, getDocs, query, where, orderBy, Timestamp, doc, onSnapshot, addDoc, serverTimestamp, deleteDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { createProgramNotification } from './AppNotificationService';
+import {
+  Program,
+  ProgramInput,
+  ProgramStatus,
+  ProgramType,
+  ProgramCompletionPayload,
+  RawProgramDocument,
+} from '../types/program';
 
-// Önbellek anahtarları
+const PROGRAMS_COLLECTION = 'programs';
+const LEGACY_COLLECTION = 'weeklyPrograms';
+
 const CACHE_KEYS = {
-  WEEKLY_PROGRAMS: 'cache_weekly_programs',
-  WEEKLY_PROGRAMS_VERSION: 'cache_weekly_programs_version'
+  PROGRAMS: 'cache_programs',
+  PROGRAMS_VERSION: 'cache_programs_version',
 };
 
-// Önbellekleme süresi (milisaniye cinsinden)
 const DEFAULT_CACHE_DURATION = 1000 * 60 * 60; // 1 saat
 
+const DAY_ORDER = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
 
-export interface Program {
-  id: string;
-  day: string;
-  program: string;
-  time: string;
-  icon: string;
-  location?: string;
-  lastAttendance?: number;
-  responsible?: string;
-  description?: string;
-  isActive: boolean;
-  createdAt: Date;
-}
+const DAY_NAME_TO_INDEX: Record<string, number> = {
+  Pazar: 0,
+  Pazartesi: 1,
+  Salı: 2,
+  Çarşamba: 3,
+  Perşembe: 4,
+  Cuma: 5,
+  Cumartesi: 6,
+};
 
-// Önbellekleme fonksiyonları
 const setCache = async <T>(key: string, data: T, version: number): Promise<void> => {
   try {
     const cacheItem = {
       data,
       timestamp: Date.now(),
-      version
+      version,
     };
     await AsyncStorage.setItem(key, JSON.stringify(cacheItem));
-    console.log(`Önbellek güncellendi: ${key}, version: ${version}`);
   } catch (error) {
     console.error('Önbelleğe kaydetme hatası:', error);
   }
@@ -44,22 +59,14 @@ const setCache = async <T>(key: string, data: T, version: number): Promise<void>
 const getCache = async <T>(key: string, maxAge: number = DEFAULT_CACHE_DURATION): Promise<T | null> => {
   try {
     const cachedData = await AsyncStorage.getItem(key);
-    
     if (!cachedData) {
       return null;
     }
-
     const cache = JSON.parse(cachedData);
     const now = Date.now();
-    const age = now - cache.timestamp;
-
-    // Önbellek süresi dolmuşsa null döndür
-    if (age > maxAge) {
-      console.log(`Önbellek süresi doldu: ${key}, yaş: ${Math.round(age / 1000 / 60)} dakika`);
+    if (now - cache.timestamp > maxAge) {
       return null;
     }
-
-    console.log(`Önbellekten alındı: ${key}, yaş: ${Math.round(age / 1000 / 60)} dakika`);
     return cache.data;
   } catch (error) {
     console.error('Önbellekten alma hatası:', error);
@@ -82,7 +89,6 @@ const updateVersion = async (key: string): Promise<number> => {
     const currentVersion = await getVersion(key);
     const newVersion = currentVersion + 1;
     await AsyncStorage.setItem(key, newVersion.toString());
-    console.log(`Sürüm güncellendi: ${key}, yeni sürüm: ${newVersion}`);
     return newVersion;
   } catch (error) {
     console.error('Sürüm güncelleme hatası:', error);
@@ -93,206 +99,439 @@ const updateVersion = async (key: string): Promise<number> => {
 const clearCache = async (key: string): Promise<void> => {
   try {
     await AsyncStorage.removeItem(key);
-    console.log(`Önbellek temizlendi: ${key}`);
   } catch (error) {
     console.error('Önbellek temizleme hatası:', error);
   }
 };
 
-// Günleri sıralamak için yardımcı fonksiyon
-export const getDayOrder = (day: string) => {
-  const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
-  return days.indexOf(day);
+const timestampToDate = (value?: Timestamp | Date | null): Date => {
+  if (!value) return new Date();
+  if (value instanceof Timestamp) {
+    return value.toDate();
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if ((value as any)?.seconds) {
+    return new Date((value as any).seconds * 1000);
+  }
+  return new Date(value as any);
 };
 
-// Firestore'dan tüm aktif programları getir
+const deriveStatus = (params: {
+  status?: ProgramStatus;
+  type: ProgramType;
+  startDate: Date;
+  endDate?: Date;
+  isActive?: boolean;
+}): ProgramStatus => {
+  if (params.status) {
+    return params.status;
+  }
+  const now = Date.now();
+  const start = params.startDate.getTime();
+  const end = params.endDate?.getTime();
+
+  if (end && end < now) {
+    return 'completed';
+  }
+
+  if (params.type === 'one_time' && start < now && !end) {
+    return 'completed';
+  }
+
+  if (start > now) {
+    return 'planned';
+  }
+
+  if (params.isActive === false) {
+    return 'completed';
+  }
+
+  return 'ongoing';
+};
+
+const formatOccurrenceLabel = (date?: Date): string | undefined => {
+  if (!date) return undefined;
+  return new Intl.DateTimeFormat('tr-TR', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
+const enrichProgram = (program: Program): Program => {
+  const enriched: Program = { ...program };
+  if (!enriched.day && enriched.type !== 'one_time') {
+    enriched.day = DAY_ORDER[enriched.startDate.getDay()];
+  }
+  if (!enriched.time) {
+    enriched.time = enriched.startDate
+      ? new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(enriched.startDate)
+      : undefined;
+  }
+  if (enriched.type === 'one_time') {
+    enriched.occurrenceDateLabel = formatOccurrenceLabel(enriched.startDate);
+  }
+  return enriched;
+};
+
+const mapProgramDoc = (docSnap: any, isLegacy = false): Program => {
+  const raw = docSnap.data() as RawProgramDocument | Record<string, any>;
+
+  const startDate = raw.startDate ? timestampToDate(raw.startDate) : timestampToDate(raw.createdAt);
+  const endDate = raw.endDate ? timestampToDate(raw.endDate) : undefined;
+
+  const type: ProgramType = (raw.type ?? (isLegacy ? 'weekly' : 'weekly')) as ProgramType;
+
+  const completedDetails = raw.completedDetails
+    ? {
+        participantCount: raw.completedDetails.participantCount ?? raw.lastAttendance ?? 0,
+        leader: raw.completedDetails.leader ?? raw.responsible,
+        managedBy: raw.completedDetails.managedBy ?? raw.completedDetails.leader ?? raw.responsible,
+        notes: raw.completedDetails.notes ?? '',
+        gallery: raw.completedDetails.gallery ?? [],
+        completedAt: raw.completedDetails.completedAt ? timestampToDate(raw.completedDetails.completedAt) : undefined,
+      }
+    : null;
+
+  const coverImage = raw.coverImage || raw.image || undefined;
+  const gallery = raw.gallery ?? (coverImage ? [coverImage] : []);
+
+  const program: Program = {
+    id: docSnap.id,
+    program: raw.program || raw.title || 'Program',
+    description: raw.description,
+    location: raw.location,
+    icon: raw.icon || 'calendar',
+    type,
+    day: raw.day,
+    dayOfMonth: raw.dayOfMonth,
+    monthlyPattern: raw.monthlyPattern ?? null,
+    monthlyWeekday: raw.monthlyWeekday ?? null,
+    monthlyWeekdayOccurrence: raw.monthlyWeekdayOccurrence ?? null,
+    time: raw.time,
+    responsible: raw.responsible,
+    lastAttendance: raw.lastAttendance,
+    isActive: raw.isActive ?? true,
+    status: deriveStatus({
+      status: raw.status,
+      type,
+      startDate,
+      endDate,
+      isActive: raw.isActive,
+    }),
+    startDate,
+    endDate,
+    recurrence: raw.recurrence ?? null,
+    scheduleNote: raw.scheduleNote,
+    isArchived: raw.isArchived ?? false,
+    createdAt: raw.createdAt ? timestampToDate(raw.createdAt) : startDate,
+    updatedAt: raw.updatedAt ? timestampToDate(raw.updatedAt) : undefined,
+    occurrenceDateLabel: raw.occurrenceDateLabel,
+    coverImage,
+    gallery,
+    completedDetails,
+  };
+
+  return enrichProgram(program);
+};
+
+const fetchLegacyPrograms = async (): Promise<Program[]> => {
+  const legacyRef = collection(db, LEGACY_COLLECTION);
+  const snapshot = await getDocs(legacyRef);
+  if (snapshot.empty) {
+    return [];
+  }
+  const programs = snapshot.docs
+    .map((docSnap) => mapProgramDoc(docSnap, true))
+    .filter((program) => program.isActive);
+
+  return programs.sort((a, b) => {
+    return (DAY_NAME_TO_INDEX[a.day ?? 'Pazar'] ?? 99) - (DAY_NAME_TO_INDEX[b.day ?? 'Pazar'] ?? 99);
+  });
+};
+
 const fetchProgramsFromFirestore = async (): Promise<Program[]> => {
   try {
-    const programsQuery = query(
-      collection(db, 'weeklyPrograms'),
-      where('isActive', '==', true)
-    );
-    
-    const snapshot = await getDocs(programsQuery);
-    
+    const programsRef = collection(db, PROGRAMS_COLLECTION);
+    const snapshot = await getDocs(programsRef);
+
     if (snapshot.empty) {
-      console.log('Aktif program bulunamadı');
-      return [];
+      console.log('Yeni program koleksiyonunda kayıt bulunamadı, legacy veriye düşülüyor.');
+      return fetchLegacyPrograms();
     }
-    
-    const programs = snapshot.docs.map(doc => {
-      const data = doc.data();
-      
-      // Firestore timestamp'i JavaScript Date nesnesine dönüştür
-      let createdAt = new Date();
-      if (data.createdAt) {
-        if (data.createdAt instanceof Timestamp) {
-          createdAt = data.createdAt.toDate();
-        } else if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
-          createdAt = data.createdAt.toDate();
-        } else if (data.createdAt.seconds) {
-          // Saniye ve nanosaniye içeren Timestamp benzeri obje
-          createdAt = new Date(data.createdAt.seconds * 1000);
-        }
-      }
-      
-      return {
-        id: doc.id,
-        ...data,
-        createdAt,
-      } as Program;
-    });
-    
-    // Günlere göre sırala
-    return programs.sort((a, b) => getDayOrder(a.day) - getDayOrder(b.day));
+
+    return snapshot.docs
+      .map((docSnap) => mapProgramDoc(docSnap))
+      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
   } catch (error) {
     console.error('Programları getirme hatası:', error);
-    // Hata durumunda örnek verileri döndür
-    console.log('Örnek program verileri kullanılıyor');
-    return [];
+    return fetchLegacyPrograms();
   }
 };
 
-// Tüm aktif programları getir (önbellekle)
 export const getAllPrograms = async (forceRefresh: boolean = false): Promise<Program[]> => {
   try {
-    // Önbellekte veri var mı kontrol et
     if (!forceRefresh) {
-      const cachedPrograms = await getCache<Program[]>(CACHE_KEYS.WEEKLY_PROGRAMS);
+      const cachedPrograms = await getCache<Program[]>(CACHE_KEYS.PROGRAMS);
       if (cachedPrograms) {
-        console.log('Programlar önbellekten alındı');
-        return cachedPrograms;
+        return cachedPrograms.map((item) => ({
+          ...item,
+          startDate: new Date(item.startDate),
+          endDate: item.endDate ? new Date(item.endDate) : undefined,
+          createdAt: new Date(item.createdAt),
+          updatedAt: item.updatedAt ? new Date(item.updatedAt) : undefined,
+        }));
       }
     }
 
-    // Önbellekte veri yoksa veya forceRefresh ise Firestore'dan verileri çek
-    console.log('Programlar Firestore\'dan çekiliyor...');
     const programs = await fetchProgramsFromFirestore();
-    
-    // Verileri önbelleğe kaydet
-    const version = await getVersion(CACHE_KEYS.WEEKLY_PROGRAMS_VERSION);
-    await setCache(CACHE_KEYS.WEEKLY_PROGRAMS, programs, version);
-    
+    const version = await getVersion(CACHE_KEYS.PROGRAMS_VERSION);
+    await setCache(CACHE_KEYS.PROGRAMS, programs, version);
     return programs;
   } catch (error) {
     console.error('Programları getirme hatası:', error);
-    // Hata durumunda örnek verileri döndür
-    console.log('Örnek program verileri kullanılıyor (tüm programlar)');
     return [];
   }
 };
 
-// Sınırlı sayıda program getir (ör: ana sayfa için)
 export const getLimitedPrograms = async (limit: number = 4, forceRefresh: boolean = false): Promise<Program[]> => {
-  try {
-    const allPrograms = await getAllPrograms(forceRefresh);
-    return allPrograms.slice(0, limit);
-  } catch (error) {
-    console.error('Sınırlı programları getirme hatası:', error);
-    // Hata durumunda örnek verilerden sınırlı döndür
-    console.log('Örnek program verileri kullanılıyor (sınırlı)');
-    return [];
-  }
+  const allPrograms = await getAllPrograms(forceRefresh);
+  const activePrograms = allPrograms.filter((program) => program.status !== 'completed');
+  return activePrograms.slice(0, limit);
 };
 
-// Programların sürümünü yükselt (yeni veri eklendiğinde/güncellendiğinde çağrılır)
 export const updateProgramsVersion = async (): Promise<void> => {
-  try {
-    await updateVersion(CACHE_KEYS.WEEKLY_PROGRAMS_VERSION);
-    // Önbelleği temizle, böylece bir sonraki çağrıda yeni veriler alınır
-    await clearCache(CACHE_KEYS.WEEKLY_PROGRAMS);
-  } catch (error) {
-    console.error('Program sürümü güncelleme hatası:', error);
-  }
+  await updateVersion(CACHE_KEYS.PROGRAMS_VERSION);
+  await clearCache(CACHE_KEYS.PROGRAMS);
 };
 
-// Programlarda yapılan değişiklikleri dinle
 export const subscribeToProgramUpdates = (callback: () => void) => {
   try {
-    const programsRef = collection(db, 'weeklyPrograms');
-    
-    // Gerçek zamanlı olarak koleksiyondaki değişiklikleri dinle
-    return onSnapshot(programsRef, (snapshot) => {
-      // Değişiklik varsa
-      if (!snapshot.empty && snapshot.docChanges().length > 0) {
-        console.log('Programlarda değişiklik tespit edildi');
-        // Önbellek sürümünü güncelle ve geri çağırma işlevini çağır
-        updateProgramsVersion().then(() => {
-          callback();
-        });
+    const programsRef = collection(db, PROGRAMS_COLLECTION);
+    return onSnapshot(
+      programsRef,
+      (snapshot) => {
+        if (snapshot.docChanges().length > 0) {
+          updateProgramsVersion().then(callback);
+        }
+      },
+      (error) => {
+        console.error('Program dinleme hatası:', error);
+        callback();
       }
-    }, (error) => {
-      console.error('Program dinleme hatası:', error);
-      // Hata durumunda yine de geri çağırma işlevini çağır
-      callback();
-    });
+    );
   } catch (error) {
-    console.error('Program aboneliği ayarlama hatası:', error);
-    // Hata durumunda sahte bir unsubscribe fonksiyonu döndür
+    console.error('Program aboneliği ayarlanamadı:', error);
     return () => {};
   }
 };
 
-// Programları Firestore'a ekle
-export const addProgram = async (programData: Omit<Program, 'id' | 'createdAt'>): Promise<Program> => {
+const buildProgramPayload = (input: ProgramInput) => {
+  const startDate = input.startDate ?? new Date();
+  const endDate = input.endDate;
+  const gallery = (input.gallery ?? []).filter(Boolean);
+  const coverImage = input.coverImage ?? gallery[0] ?? null;
+
+  return {
+    program: input.program,
+    description: input.description ?? '',
+    location: input.location ?? '',
+    icon: input.icon ?? 'calendar',
+    type: input.type,
+    day: input.type === 'weekly' ? input.day ?? DAY_ORDER[startDate.getDay()] : input.day ?? null,
+    dayOfMonth: input.type === 'monthly' ? input.dayOfMonth ?? startDate.getDate() : input.dayOfMonth ?? null,
+    monthlyPattern: input.type === 'monthly' ? input.monthlyPattern ?? null : null,
+    monthlyWeekday: input.type === 'monthly' ? input.monthlyWeekday ?? null : null,
+    monthlyWeekdayOccurrence: input.type === 'monthly' ? input.monthlyWeekdayOccurrence ?? null : null,
+    time: input.time ?? new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(startDate),
+    responsible: input.responsible ?? '',
+    lastAttendance: input.lastAttendance ?? 0,
+    isActive: input.isActive ?? true,
+    status: deriveStatus({
+      status: input.status,
+      type: input.type,
+      startDate,
+      endDate,
+      isActive: input.isActive,
+    }),
+    startDate: Timestamp.fromDate(startDate),
+    endDate: endDate ? Timestamp.fromDate(endDate) : null,
+    recurrence: input.recurrence ?? null,
+    scheduleNote: input.scheduleNote ?? '',
+    occurrenceDateLabel: input.type === 'one_time' ? formatOccurrenceLabel(startDate) : null,
+    updatedAt: serverTimestamp(),
+    coverImage,
+    image: coverImage,
+    gallery,
+    completedDetails: input.completedDetails
+      ? {
+          ...input.completedDetails,
+          completedAt: input.completedDetails.completedAt
+            ? Timestamp.fromDate(input.completedDetails.completedAt)
+            : null,
+        }
+      : null,
+  };
+};
+
+export const addProgram = async (programData: ProgramInput): Promise<Program> => {
   try {
-    // Firestore'a program ekle
-    const programsRef = collection(db, 'weeklyPrograms');
-    
-    const docRef = await addDoc(programsRef, {
-      ...programData,
+    const programsRef = collection(db, PROGRAMS_COLLECTION);
+    const payload = {
+      ...buildProgramPayload(programData),
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    
-    console.log('Program başarıyla eklendi:', docRef.id);
-    
-    // Önbellek sürümünü güncelle
+    };
+
+    const docRef = await addDoc(programsRef, payload);
     await updateProgramsVersion();
-    
-    // Yeni eklenen programı döndür
-    return {
+
+    // Bildirim oluştur
+    try {
+      await createProgramNotification(programData.program, docRef.id);
+    } catch (error) {
+      console.error('Program bildirimi oluşturma hatası:', error);
+      // Bildirim hatası program eklemeyi engellemez
+    }
+
+    return enrichProgram({
       id: docRef.id,
       ...programData,
+      isActive: programData.isActive ?? true,
+      status:
+        programData.status ??
+        deriveStatus({
+          type: programData.type,
+          startDate: programData.startDate,
+          endDate: programData.endDate,
+          isActive: programData.isActive,
+        }),
+      startDate: programData.startDate,
+      endDate: programData.endDate,
+      recurrence: programData.recurrence ?? null,
+      scheduleNote: programData.scheduleNote ?? '',
+      monthlyPattern: programData.monthlyPattern ?? null,
+      monthlyWeekday: programData.monthlyWeekday ?? null,
+      monthlyWeekdayOccurrence: programData.monthlyWeekdayOccurrence ?? null,
+      coverImage: programData.coverImage,
+      gallery: programData.gallery ?? (programData.coverImage ? [programData.coverImage] : []),
+      completedDetails: programData.completedDetails ?? null,
       createdAt: new Date(),
-    } as Program;
+    } as Program);
   } catch (error) {
     console.error('Program ekleme hatası:', error);
-    throw new Error('Program eklenirken bir hata oluştu');
+    throw new Error('Program eklenirken bir hata oluştu.');
   }
 };
 
-// Programı sil
-export const deleteProgram = async (programId: string): Promise<void> => {
+export const updateProgram = async (programId: string, programData: Partial<ProgramInput>): Promise<void> => {
   try {
-    const programRef = doc(db, 'weeklyPrograms', programId);
-    await deleteDoc(programRef);
-    
-    console.log('Program başarıyla silindi:', programId);
-    
-    // Önbellek sürümünü güncelle
-    await updateProgramsVersion();
-  } catch (error) {
-    console.error('Program silme hatası:', error);
-    throw new Error('Program silinirken bir hata oluştu');
-  }
-};
+    const programRef = doc(db, PROGRAMS_COLLECTION, programId);
+    const payload: Record<string, any> = {
+      updatedAt: serverTimestamp(),
+    };
 
-// Programı güncelle
-export const updateProgram = async (programId: string, programData: Partial<Program>): Promise<void> => {
-  try {
-    const programRef = doc(db, 'weeklyPrograms', programId);
-    await updateDoc(programRef, {
-      ...programData,
-      updatedAt: serverTimestamp()
-    });
-    
-    console.log('Program başarıyla güncellendi:', programId);
-    
-    // Önbellek sürümünü güncelle
+    if (programData.program !== undefined) payload.program = programData.program;
+    if (programData.description !== undefined) payload.description = programData.description;
+    if (programData.location !== undefined) payload.location = programData.location;
+    if (programData.icon !== undefined) payload.icon = programData.icon;
+    if (programData.type !== undefined) payload.type = programData.type;
+    if (programData.day !== undefined) payload.day = programData.day;
+    if (programData.dayOfMonth !== undefined) payload.dayOfMonth = programData.dayOfMonth;
+    if (programData.monthlyPattern !== undefined) payload.monthlyPattern = programData.monthlyPattern;
+    if (programData.monthlyWeekday !== undefined) payload.monthlyWeekday = programData.monthlyWeekday;
+    if (programData.monthlyWeekdayOccurrence !== undefined) payload.monthlyWeekdayOccurrence = programData.monthlyWeekdayOccurrence;
+    if (programData.time !== undefined) payload.time = programData.time;
+    if (programData.responsible !== undefined) payload.responsible = programData.responsible;
+    if (programData.lastAttendance !== undefined) payload.lastAttendance = programData.lastAttendance;
+    if (programData.recurrence !== undefined) payload.recurrence = programData.recurrence;
+    if (programData.scheduleNote !== undefined) payload.scheduleNote = programData.scheduleNote;
+    if (programData.isActive !== undefined) payload.isActive = programData.isActive;
+    if (programData.coverImage !== undefined) {
+      payload.coverImage = programData.coverImage;
+      payload.image = programData.coverImage;
+    }
+    if (programData.gallery !== undefined) payload.gallery = programData.gallery;
+    if (programData.completedDetails !== undefined) {
+      payload.completedDetails = programData.completedDetails
+        ? {
+            ...programData.completedDetails,
+            completedAt: programData.completedDetails.completedAt
+              ? Timestamp.fromDate(programData.completedDetails.completedAt)
+              : serverTimestamp(),
+          }
+        : null;
+    }
+
+    if (programData.startDate) {
+      payload.startDate = Timestamp.fromDate(programData.startDate);
+      payload.occurrenceDateLabel = programData.type === 'one_time' ? formatOccurrenceLabel(programData.startDate) : null;
+    }
+
+    if (programData.endDate) {
+      payload.endDate = Timestamp.fromDate(programData.endDate);
+    }
+
+    if (programData.status) {
+      payload.status = programData.status;
+    } else if (programData.startDate || programData.endDate || programData.isActive !== undefined || programData.type) {
+      const start = programData.startDate ?? new Date();
+      payload.status = deriveStatus({
+        status: programData.status,
+        type: programData.type ?? 'weekly',
+        startDate: start,
+        endDate: programData.endDate,
+        isActive: programData.isActive,
+      });
+    }
+
+    await updateDoc(programRef, payload);
     await updateProgramsVersion();
   } catch (error) {
     console.error('Program güncelleme hatası:', error);
-    throw new Error('Program güncellenirken bir hata oluştu');
+    throw new Error('Program güncellenirken bir hata oluştu.');
   }
-}; 
+};
+
+export const deleteProgram = async (programId: string): Promise<void> => {
+  try {
+    const programRef = doc(db, PROGRAMS_COLLECTION, programId);
+    await deleteDoc(programRef);
+    await updateProgramsVersion();
+  } catch (error) {
+    console.error('Program silme hatası:', error);
+    throw new Error('Program silinirken bir hata oluştu.');
+  }
+};
+
+export const completeProgram = async (programId: string, payload: ProgramCompletionPayload): Promise<void> => {
+  try {
+    const programRef = doc(db, PROGRAMS_COLLECTION, programId);
+    const completionTimestamp = serverTimestamp();
+    await updateDoc(programRef, {
+      status: 'completed',
+      isActive: false,
+      endDate: completionTimestamp,
+      updatedAt: serverTimestamp(),
+      lastAttendance: payload.participantCount,
+      completedDetails: {
+        participantCount: payload.participantCount,
+        leader: payload.leader ?? '',
+        managedBy: payload.managedBy ?? payload.leader ?? '',
+        notes: payload.notes ?? '',
+        gallery: payload.gallery ?? [],
+        completedAt: completionTimestamp,
+      },
+      gallery: payload.gallery ?? [],
+    });
+    await updateProgramsVersion();
+  } catch (error) {
+    console.error('Program tamamlama hatası:', error);
+    throw new Error('Program tamamlanırken bir hata oluştu.');
+  }
+};
+
+export type { Program, ProgramCompletionPayload } from '../types/program';

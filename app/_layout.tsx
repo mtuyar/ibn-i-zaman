@@ -6,7 +6,8 @@ import React, { useEffect, useState } from 'react';
 import { AppState, Platform, StatusBar, useColorScheme, View } from 'react-native';
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import 'react-native-reanimated';
+// Reanimated is imported by components that use it (HelloWave, ParallaxScrollView, etc.)
+// import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Colors from '../constants/Colors';
 import { AuthProvider, useAuth } from '../context/AuthContext';
@@ -14,6 +15,7 @@ import { ThemeProvider } from '../context/ThemeContext';
 import { rescheduleDailyIfNeeded } from '../services/DailyRescheduler';
 import { initialize as initNotifications } from '../services/NotificationService';
 import { initializeUserStatus, updateLastSeen, updateUserStatus } from '../services/UserStatusService';
+import * as Notifications from 'expo-notifications';
 
 // Firebase'i doğrudan import et
 import { auth } from '../config/firebase';
@@ -89,6 +91,28 @@ export default function RootLayout() {
       (async () => {
         await initNotifications();
         await rescheduleDailyIfNeeded();
+        
+        // Bildirim listener'larını kur
+        // Uygulama açıkken gelen bildirimleri yakala
+        const receivedListener = Notifications.addNotificationReceivedListener(notification => {
+          console.log('📬 Bildirim alındı (uygulama açık):', notification.request.content.title);
+          // Ses çal ve bildirimi göster
+        });
+        
+        // Bildirime tıklandığında
+        const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+          console.log('👆 Bildirime tıklandı:', response.notification.request.content);
+          const data = response.notification.request.content.data;
+          if (data?.chatId) {
+            // Chat sayfasına yönlendir
+            // router.push(`/chat/${data.chatId}`);
+          }
+        });
+        
+        return () => {
+          receivedListener.remove();
+          responseListener.remove();
+        };
       })().catch(console.error);
     }
     
@@ -104,14 +128,17 @@ export default function RootLayout() {
   }
 
   function AuthGate() {
-    const { isLoading } = useAuth();
+    const { isLoading, isLoggedIn } = useAuth();
 
     useEffect(() => {
+      // Auth kontrolü tamamlanana kadar splash screen'i göster
       if (!isLoading && fontsLoaded && isFirebaseReady) {
+        // Hemen splash screen'i gizle (gecikme yok)
         SplashScreen.hideAsync().catch(() => {});
       }
-    }, [isLoading]);
+    }, [isLoading, fontsLoaded, isFirebaseReady]);
 
+    // Auth kontrolü tamamlanana kadar hiçbir şey render etme (splash screen gösterilecek)
     if (isLoading) {
       return null;
     }

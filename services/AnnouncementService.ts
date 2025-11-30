@@ -15,6 +15,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { createAnnouncementNotification } from './AppNotificationService';
 import {
   AnnouncementDocument,
   AnnouncementInput,
@@ -76,7 +77,23 @@ export async function createAnnouncement(
 
   const created = await getDoc(docRef);
   const data = created.data() as AnnouncementDocument;
-  return mapDocToRecord(created.id, data);
+  const record = mapDocToRecord(created.id, data);
+
+  // Bildirim oluştur (sadece published ve urgent ise)
+  try {
+    if (input.status === 'published' || input.criticality === 'urgent') {
+      await createAnnouncementNotification(
+        input.title,
+        created.id,
+        input.criticality === 'urgent'
+      );
+    }
+  } catch (error) {
+    console.error('Duyuru bildirimi oluşturma hatası:', error);
+    // Bildirim hatası duyuru oluşturmayı engellemez
+  }
+
+  return record;
 }
 
 export async function updateAnnouncement(
