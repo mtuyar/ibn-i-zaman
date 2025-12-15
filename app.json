@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "icon": "./assets/images/icon.png",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "bundleIdentifier": "com.mtuyarr.ibnizaman",
       "bitcode": false,
       "infoPlist": {
@@ -66,7 +66,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "da5826aa-089a-4973-9f1d-a9150051f57a"
+        "projectId": "2fa1bb3d-3606-42e8-929c-bdd76d50bdc9"
       }
     },
     "runtimeVersion": {
@@ -75,6 +75,6 @@
     "updates": {
       "url": "https://u.expo.dev/2fa1bb3d-3606-42e8-929c-bdd76d50bdc9"
     },
-    "owner": "mtuyar"
+    "owner": "mtuyarr"
   }
 }

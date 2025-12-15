@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+    Alert,
     FlatList,
     Image,
     Platform,
@@ -19,6 +20,7 @@ import { ChatItem } from '../../components/ChatItem';
 import Colors from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { Chat, deleteChat, getChats, subscribeToChats } from '../../services/ChatService';
+import { sendTestNotification } from '../../services/PushService';
 import { getUser } from '../../services/UserService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -121,8 +123,33 @@ export default function ChatScreen() {
     }
   };
 
+  const handleTestNotification = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      Alert.alert('Bildirim Testi', 'Firebase üzerinden test bildirimi gönderiliyor...');
+      const success = await sendTestNotification(user.uid);
+      
+      if (success) {
+        Alert.alert('Başarılı', 'Test mesajı gönderildi. Birkaç saniye içinde bildirim gelmeli.');
+      } else {
+        Alert.alert('Hata', 'Test bildirimi gönderilemedi. Token bulunamamış olabilir.');
+      }
+    } catch (error) {
+      console.error('Test bildirimi hatası:', error);
+      Alert.alert('Hata', 'Bir hata oluştu.');
+    }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+      <TouchableOpacity 
+        style={{ backgroundColor: theme.primary, padding: 8, alignItems: 'center', marginHorizontal: 16, marginTop: 8, borderRadius: 8 }}
+        onPress={handleTestNotification}
+      >
+        <Text style={{ color: '#fff', fontWeight: 'bold' }}>🔥 Firebase Bildirim Testi</Text>
+      </TouchableOpacity>
+
       {/* Header */}
       <View style={[styles.headerContainer, { backgroundColor: theme.surface, borderBottomColor: theme.border, paddingTop: Platform.OS === 'ios' ? 8 : StatusBar.currentHeight }]}>
         <View style={styles.headerRow}>

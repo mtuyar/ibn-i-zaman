@@ -48,6 +48,10 @@ export default function HomeScreen() {
           </View>
         }
         onLeftButtonPress={handleContactsPress}
+        rightButton={
+          <Ionicons name="game-controller-outline" size={24} color="#FFF" />
+        }
+        onRightButtonPress={() => router.push('/game')}
       />
       <ScrollView
         style={styles.scrollView}

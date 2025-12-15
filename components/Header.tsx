@@ -228,29 +228,30 @@ export default function Header({
           <View style={styles.titleContainer}>
             <Text style={styles.title}>{title}</Text>
           </View>
-          {/* Sağ taraf - Özel buton veya bildirim ikon */}
-          {rightButton ? (
-            <TouchableOpacity
-              style={styles.analyticsButton}
-              onPress={onRightButtonPress}
-              accessibilityRole="button"
-            >
-              {rightButton}
-            </TouchableOpacity>
-          ) : showNotification ? (
-            <TouchableOpacity
-              style={styles.notificationButton}
-              onPress={() => setIsModalVisible(true)}>
-              <Ionicons name="notifications-outline" size={22} color="#FFF" />
-              {unreadCount > 0 && (
-                <View style={[styles.notificationBadge, { backgroundColor: theme.error, borderColor: theme.surface }]}>
-                  <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount.toString()}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.sideContainer} />
-          )}
+          <View style={styles.rightContainer}>
+            {rightButton && (
+              <TouchableOpacity
+                style={styles.analyticsButton}
+                onPress={onRightButtonPress}
+                accessibilityRole="button"
+              >
+                {rightButton}
+              </TouchableOpacity>
+            )}
+            {showNotification && (
+              <TouchableOpacity
+                style={styles.notificationButton}
+                onPress={() => setIsModalVisible(true)}>
+                <Ionicons name="notifications-outline" size={22} color="#FFF" />
+                {unreadCount > 0 && (
+                  <View style={[styles.notificationBadge, { backgroundColor: theme.error, borderColor: theme.surface }]}>
+                    <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount.toString()}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+            {!rightButton && !showNotification && <View style={styles.sideContainer} />}
+          </View>
         </View>
       </LinearGradient>
 
@@ -364,6 +365,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     height: 44, // Instagram/Twitter benzeri sabit header yüksekliği
+  },
+  rightContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   sideContainer: {
     minWidth: 36,
@@ -532,4 +538,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-}); 
+});

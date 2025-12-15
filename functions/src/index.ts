@@ -190,7 +190,7 @@ export const onMessageCreate = onDocumentCreated('messages/{messageId}', async (
           android: {
             priority: 'high',
             notification: { 
-              channelId: 'messages',
+              channelId: 'messages_v2',
               sound: 'default',
               priority: 'high',
               visibility: 'public',

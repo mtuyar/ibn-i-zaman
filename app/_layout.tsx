@@ -183,6 +183,10 @@ export default function RootLayout() {
                   presentation: 'card',
                 }}
               />
+              
+              {/* Oyun ekranları */}
+              <Stack.Screen name="game/index" options={{ headerShown: false }} />
+              <Stack.Screen name="game/play" options={{ headerShown: false }} />
             </Stack>
           </View>
         </SafeAreaProvider>

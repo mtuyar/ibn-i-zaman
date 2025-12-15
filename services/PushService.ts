@@ -60,8 +60,8 @@ export async function getDevicePushTokenAsync(): Promise<{ type: string; data: s
 
   // Ensure Android channels exist
   if (Platform.OS === 'android') {
-    // Mesaj bildirimleri için channel
-    await Notifications.setNotificationChannelAsync('messages', {
+    // Mesaj bildirimleri için channel (v2)
+    await Notifications.setNotificationChannelAsync('messages_v2', {
       name: 'Mesaj Bildirimleri',
       description: 'Yeni mesaj bildirimleri',
       importance: Notifications.AndroidImportance.MAX,
