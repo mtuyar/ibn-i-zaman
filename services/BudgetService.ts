@@ -41,7 +41,7 @@ export const defaultCategories: Category[] = [
   { id: 'promotion_income', name: 'Promosyon', icon: 'cash-plus', color: '#009688', type: 'income' },
   { id: 'grant', name: 'Hibe/Proje', icon: 'file-document', color: '#26A69A', type: 'income' },
   { id: 'other_income', name: 'Diğer Gelir', icon: 'plus-circle', color: '#9C27B0', type: 'income' },
-  
+
   // Gider Kategorileri
   { id: 'ikramlik', name: 'İkramlık', icon: 'food', color: '#FF8A65', type: 'expense' },
   { id: 'food', name: 'Yemek', icon: 'silverware-fork-knife', color: '#FF7043', type: 'expense' },
@@ -147,7 +147,7 @@ export const getTransactions = async (user: User): Promise<Transaction[]> => {
     }
 
     console.log(`${user.uid} kullanıcısı için işlemler getiriliyor...`);
-    
+
     // Geçici olarak sadece userId'ye göre filtreleme yapıyoruz
     const transactionsQuery = query(
       collection(db, 'transactions'),
@@ -245,17 +245,42 @@ export const getTransactionsByCategory = async (category: string, user: User): P
   } as Transaction));
 };
 
-// Tarih aralığına göre işlemleri getir (kullanıcı bazlı)
-export const getTransactionsByDateRange = async (startDate: Date, endDate: Date, user: User): Promise<Transaction[]> => {
+// Tarih aralığına göre işlemleri getir (kullanıcı bazlı veya admin için hepsi)
+// Tarih aralığına göre işlemleri getir (kullanıcı bazlı veya admin için hepsi)
+export const getTransactionsByDateRange = async (startDate: Date, endDate: Date, user: User, isAdmin: boolean = false, targetUserId?: string): Promise<Transaction[]> => {
   if (!user) throw new Error('Kullanıcı girişi gerekli');
 
-  const transactionsQuery = query(
-    collection(db, 'transactions'),
-    where('userId', '==', user.uid),
-    where('date', '>=', Timestamp.fromDate(startDate)),
-    where('date', '<=', Timestamp.fromDate(endDate)),
-    orderBy('date', 'desc')
-  );
+  let transactionsQuery;
+
+  if (isAdmin) {
+    if (targetUserId) {
+      // Admin belirli bir kullanıcıyı seçtiyse
+      transactionsQuery = query(
+        collection(db, 'transactions'),
+        where('userId', '==', targetUserId),
+        where('date', '>=', Timestamp.fromDate(startDate)),
+        where('date', '<=', Timestamp.fromDate(endDate)),
+        orderBy('date', 'desc')
+      );
+    } else {
+      // Admin ve kullanıcı seçilmediyse tüm kullanıcıların işlemlerini getir
+      transactionsQuery = query(
+        collection(db, 'transactions'),
+        where('date', '>=', Timestamp.fromDate(startDate)),
+        where('date', '<=', Timestamp.fromDate(endDate)),
+        orderBy('date', 'desc')
+      );
+    }
+  } else {
+    // Normal kullanıcı ise sadece kendi işlemlerini getir
+    transactionsQuery = query(
+      collection(db, 'transactions'),
+      where('userId', '==', user.uid),
+      where('date', '>=', Timestamp.fromDate(startDate)),
+      where('date', '<=', Timestamp.fromDate(endDate)),
+      orderBy('date', 'desc')
+    );
+  }
 
   const snapshot = await getDocs(transactionsQuery);
   return snapshot.docs.map(doc => ({
@@ -342,9 +367,12 @@ export const getUserCategories = async (user: User): Promise<Category[]> => {
 };
 
 // İstatistikler (kullanıcı bazlı)
+// İstatistikler (kullanıcı bazlı)
+// İstatistikler (kullanıcı bazlı veya admin için hepsi)
 export const getTransactionStats = async (
-  period: 'week' | 'month' | 'year',
-  user: User
+  period: 'week' | 'month' | 'year' | 'all',
+  user: User,
+  isAdmin: boolean = false
 ): Promise<{
   totalIncome: number;
   totalExpense: number;
@@ -366,10 +394,13 @@ export const getTransactionStats = async (
     case 'year':
       startDate = new Date(now.getFullYear(), 0, 1);
       break;
+    case 'all':
+      startDate = new Date(2000, 0, 1); // Effectively all time
+      break;
   }
 
-  const transactions = await getTransactionsByDateRange(startDate, new Date(), user);
-  
+  const transactions = await getTransactionsByDateRange(startDate, new Date(), user, isAdmin);
+
   const stats = transactions.reduce((acc, transaction) => {
     if (transaction.type === 'income') {
       acc.totalIncome += transaction.amount;

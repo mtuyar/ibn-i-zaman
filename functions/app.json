@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "3a567ea0-7a93-4921-8416-6e2e24b6a5e8"
+      }
+    },
+    "android": {
+      "package": "com.mtuyar.ibnizamanfunctions"
+    },
+    "ios": {
+      "bundleIdentifier": "com.mtuyar.ibnizamanfunctions",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}

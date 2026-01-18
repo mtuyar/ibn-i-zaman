@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Redirect, Tabs } from 'expo-router';
+import { Redirect, Tabs, useRouter } from 'expo-router';
 import React from 'react';
 import { Platform, Pressable, useColorScheme, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +7,7 @@ import Colors from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 
 export default function TabLayout() {
+  const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const { isLoggedIn } = useAuth();
@@ -50,7 +51,7 @@ export default function TabLayout() {
           },
           // Android için press efektini kapat
           tabBarButton: (props) => (
-            <Pressable 
+            <Pressable
               {...props}
               android_disableSound={true}
               android_ripple={{ color: 'transparent' }}
@@ -63,10 +64,10 @@ export default function TabLayout() {
           options={{
             title: 'Genel',
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons 
-                name={focused ? "compass" : "compass-outline"} 
-                size={size} 
-                color={color} 
+              <Ionicons
+                name={focused ? "compass" : "compass-outline"}
+                size={size}
+                color={color}
               />
             ),
           }}
@@ -76,10 +77,10 @@ export default function TabLayout() {
           options={{
             title: 'Sohbet',
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons 
-                name={focused ? "chatbubbles" : "chatbubbles-outline"} 
-                size={size} 
-                color={color} 
+              <Ionicons
+                name={focused ? "chatbubbles" : "chatbubbles-outline"}
+                size={size}
+                color={color}
               />
             ),
           }}
@@ -89,10 +90,10 @@ export default function TabLayout() {
           options={{
             title: 'Bütçe',
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons 
-                name={focused ? "wallet" : "wallet-outline"} 
-                size={size} 
-                color={color} 
+              <Ionicons
+                name={focused ? "wallet" : "wallet-outline"}
+                size={size}
+                color={color}
               />
             ),
           }}
@@ -102,10 +103,10 @@ export default function TabLayout() {
           options={{
             title: 'Vazife',
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons 
-                name={focused ? "checkbox" : "checkbox-outline"} 
-                size={size} 
-                color={color} 
+              <Ionicons
+                name={focused ? "checkbox" : "checkbox-outline"}
+                size={size}
+                color={color}
               />
             ),
           }}
@@ -115,10 +116,10 @@ export default function TabLayout() {
           options={{
             title: 'Profil',
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons 
-                name={focused ? "person" : "person-outline"} 
-                size={size} 
-                color={color} 
+              <Ionicons
+                name={focused ? "person" : "person-outline"}
+                size={size}
+                color={color}
               />
             ),
           }}

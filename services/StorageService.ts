@@ -1,6 +1,6 @@
 import { FirebaseError } from 'firebase/app';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { storage, auth } from '../config/firebase';
 
@@ -19,7 +19,7 @@ const getCachedImageUrl = async (url: string): Promise<string | null> => {
       const { url: cachedUrl, timestamp } = JSON.parse(cached);
       const now = Date.now();
       const expiryTime = CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
-      
+
       // Cache hala geçerli mi kontrol et
       if (now - timestamp < expiryTime) {
         console.log('📦 [CACHE] Cache\'den alındı:', url);
@@ -58,12 +58,12 @@ export const getCachedOrDownloadImage = async (url: string): Promise<string> => 
     if (cached) {
       return cached;
     }
-    
+
     // Cache'de yoksa, URL'i cache'e kaydet (aynı URL'i döndür)
     await setCachedImageUrl(url, url);
     return url;
   }
-  
+
   return url;
 };
 
@@ -123,7 +123,7 @@ const mapFirebaseError = (error: unknown): Error => {
 export const uploadImageFromUri = async (uri: string, folder: string = 'programs'): Promise<string> => {
   console.log('📤 [UPLOAD] Başlangıç - URI:', uri);
   console.log('📤 [UPLOAD] Folder:', folder);
-  
+
   try {
     // Eğer URI zaten bir HTTP/HTTPS URL'si ise, doğrudan kullan
     if (uri.startsWith('http://') || uri.startsWith('https://')) {
@@ -149,14 +149,14 @@ export const uploadImageFromUri = async (uri: string, folder: string = 'programs
     const extension = guessExtension(uri);
     const mimeType = guessMimeType(extension);
     const fileName = `${folder}/${Date.now()}-${randomSuffix()}.${extension}`;
-    
+
     console.log('📤 [UPLOAD] Dosya bilgileri:', {
       extension,
       mimeType,
       fileName,
       uri,
     });
-    
+
     // Dosya varlığını kontrol et
     console.log('📤 [UPLOAD] Adım 1: Dosya varlığını kontrol ediyorum...');
     const fileInfo = await FileSystem.getInfoAsync(uri);
@@ -165,11 +165,11 @@ export const uploadImageFromUri = async (uri: string, folder: string = 'programs
       size: fileInfo.size,
       isDirectory: fileInfo.isDirectory,
     });
-    
+
     if (!fileInfo.exists) {
       throw new Error('Dosya bulunamadı: ' + uri);
     }
-    
+
     // Dosyayı base64 olarak oku
     console.log('📤 [UPLOAD] Adım 2: Dosyayı base64 olarak okuyorum...');
     const base64 = await FileSystem.readAsStringAsync(uri, {
@@ -187,7 +187,7 @@ export const uploadImageFromUri = async (uri: string, folder: string = 'programs
 
     // Firebase Storage REST API kullanarak yükle (React Native'de en garantili yöntem)
     console.log('📤 [UPLOAD] Adım 3: Firebase Storage REST API kullanılıyor...');
-    
+
     try {
       // Kullanıcı kontrolü
       const user = auth.currentUser;
@@ -195,26 +195,26 @@ export const uploadImageFromUri = async (uri: string, folder: string = 'programs
         throw new Error('Kullanıcı giriş yapmamış');
       }
       console.log('📤 [UPLOAD] Kullanıcı doğrulandı:', user.uid);
-      
+
       // Firebase Auth token al
       console.log('📤 [UPLOAD] Adım 4: Firebase Auth token alınıyor...');
       const token = await user.getIdToken(true);
       console.log('📤 [UPLOAD] Token alındı, uzunluk:', token.length);
-      
+
       // Firebase Storage bucket ve endpoint
       const bucket = 'gencsafa-management-app.firebasestorage.app';
       const encodedPath = encodeURIComponent(fileName);
       const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?uploadType=media&name=${encodedPath}`;
-      
+
       console.log('📤 [UPLOAD] Adım 5: REST API endpoint hazırlanıyor...');
       console.log('📤 [UPLOAD] Upload URL:', uploadUrl);
-      
+
       // Base64'ü binary'ye dönüştür
       console.log('📤 [UPLOAD] Adım 6: Base64 binary\'ye dönüştürülüyor...');
       const Buffer = require('buffer').Buffer;
       const bufferData = Buffer.from(base64, 'base64');
       console.log('📤 [UPLOAD] Binary data boyutu:', bufferData.length);
-      
+
       // REST API'ye POST isteği gönder
       console.log('📤 [UPLOAD] Adım 7: REST API\'ye POST isteği gönderiliyor...');
       const response = await fetch(uploadUrl, {
@@ -225,26 +225,26 @@ export const uploadImageFromUri = async (uri: string, folder: string = 'programs
         },
         body: bufferData,
       });
-      
+
       console.log('📤 [UPLOAD] REST API yanıt durumu:', {
         status: response.status,
         statusText: response.statusText,
         ok: response.ok,
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('📤 [UPLOAD] REST API hatası:', errorText);
         throw new Error(`Firebase Storage REST API hatası: ${response.status} - ${errorText}`);
       }
-      
+
       const result = await response.json();
       console.log('📤 [UPLOAD] REST API sonucu:', result);
-      
+
       // Download URL oluştur
       const downloadToken = result.downloadTokens?.[0] || result.downloadTokens;
       const encodedName = encodeURIComponent(fileName);
-      
+
       let downloadURL: string;
       if (downloadToken) {
         downloadURL = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedName}?alt=media&token=${downloadToken}`;
@@ -253,12 +253,12 @@ export const uploadImageFromUri = async (uri: string, folder: string = 'programs
         downloadURL = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedName}?alt=media`;
         console.log('📤 [UPLOAD] ⚠️ Download token yok, alternatif URL kullanılıyor');
       }
-      
+
       console.log('📤 [UPLOAD] ✅ Başarılı! Download URL:', downloadURL);
-      
+
       // Cache'e kaydet (orijinal URI'yi key olarak kullan)
       await setCachedImageUrl(uri, downloadURL);
-      
+
       return downloadURL;
     } catch (uploadError: any) {
       // Daha detaylı hata bilgisi için log

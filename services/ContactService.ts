@@ -81,11 +81,11 @@ export const getContactById = async (contactId: string): Promise<Contact | null>
   try {
     const contactRef = doc(db, CONTACTS_COLLECTION, contactId);
     const contactDoc = await getDoc(contactRef);
-    
+
     if (!contactDoc.exists()) {
       return null;
     }
-    
+
     const data = contactDoc.data();
     return {
       id: contactDoc.id,
@@ -141,7 +141,7 @@ export const getUserContacts = async (
         const email = contact.email?.toLowerCase() || '';
         const address = contact.address?.toLowerCase() || '';
         const tags = contact.tags?.map(tag => tag.toLowerCase()).join(' ') || '';
-        
+
         return (
           fullName.includes(searchLower) ||
           phone.includes(searchLower) ||
@@ -156,7 +156,7 @@ export const getUserContacts = async (
 
     // Meslek filtresi
     if (filters?.profession) {
-      contacts = contacts.filter(contact => 
+      contacts = contacts.filter(contact =>
         contact.profession?.toLowerCase() === filters.profession?.toLowerCase()
       );
     }
@@ -225,7 +225,7 @@ export const subscribeToContacts = (
 export const getContactStats = async (userId: string): Promise<ContactStats> => {
   try {
     const contacts = await getUserContacts(userId);
-    
+
     const stats: ContactStats = {
       totalContacts: contacts.length,
       recentlyAdded: 0,
@@ -247,7 +247,7 @@ export const getContactStats = async (userId: string): Promise<ContactStats> => 
 
       // Meslek istatistikleri
       if (contact.profession) {
-        stats.professions[contact.profession] = 
+        stats.professions[contact.profession] =
           (stats.professions[contact.profession] || 0) + 1;
       }
 
@@ -327,6 +327,41 @@ export const removeTagFromContact = async (
   }
 };
 
+/**
+ * Kişi fotoğrafı yükle
+ */
+export const uploadContactPhoto = async (
+  contactId: string,
+  imageUri: string
+): Promise<string> => {
+  try {
+    // Import storage dynamically to avoid issues
+    const { storage } = await import('../config/firebase');
+    const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+
+    // Fetch the image and convert to blob
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+
+    // Create storage reference
+    const storageRef = ref(storage, `contacts/${contactId}/photo.jpg`);
+
+    // Upload
+    await uploadBytes(storageRef, blob);
+
+    // Get download URL
+    const downloadURL = await getDownloadURL(storageRef);
+
+    // Update contact with photo URL
+    await updateContact(contactId, { photoURL: downloadURL });
+
+    return downloadURL;
+  } catch (error) {
+    console.error('Fotoğraf yükleme hatası:', error);
+    throw error;
+  }
+};
+
 export const ContactService = {
   createContact,
   updateContact,
@@ -338,6 +373,7 @@ export const ContactService = {
   updateLastContactedAt,
   addTagToContact,
   removeTagFromContact,
+  uploadContactPhoto,
 };
 
 export default ContactService;

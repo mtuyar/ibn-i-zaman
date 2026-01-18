@@ -12,10 +12,13 @@ import {
   StatusBar,
   Animated,
   Share,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../context/AuthContext';
 import { Contact } from '../../types/contact';
 import ContactService from '../../services/ContactService';
@@ -34,6 +37,7 @@ export default function ContactDetailScreen() {
   const [contact, setContact] = useState<Contact | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const scrollY = new Animated.Value(0);
 
   useEffect(() => {
@@ -55,6 +59,39 @@ export default function ContactDetailScreen() {
       router.back();
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handlePickPhoto = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('İzin Gerekli', 'Fotoğraf seçmek için galeri izni gerekli.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets[0] && id) {
+        setUploadingPhoto(true);
+        try {
+          await ContactService.uploadContactPhoto(id, result.assets[0].uri);
+          await loadContact();
+          Alert.alert('Başarılı', 'Fotoğraf yüklendi!');
+        } catch (error) {
+          console.error('Photo upload error:', error);
+          Alert.alert('Hata', 'Fotoğraf yüklenirken bir hata oluştu.');
+        } finally {
+          setUploadingPhoto(false);
+        }
+      }
+    } catch (error) {
+      console.error('Image picker error:', error);
     }
   };
 
@@ -113,7 +150,7 @@ export default function ContactDetailScreen() {
       await ContactService.updateLastContactedAt(contact.id);
       const phoneUrl = `tel:${contact.phone}`;
       const canOpen = await Linking.canOpenURL(phoneUrl);
-      
+
       if (canOpen) {
         await Linking.openURL(phoneUrl);
       } else {
@@ -129,12 +166,12 @@ export default function ContactDetailScreen() {
 
     try {
       await ContactService.updateLastContactedAt(contact.id);
-      const smsUrl = Platform.OS === 'ios' 
+      const smsUrl = Platform.OS === 'ios'
         ? `sms:${contact.phone}`
         : `sms:${contact.phone}`;
-      
+
       const canOpen = await Linking.canOpenURL(smsUrl);
-      
+
       if (canOpen) {
         await Linking.openURL(smsUrl);
       } else {
@@ -152,9 +189,9 @@ export default function ContactDetailScreen() {
       await ContactService.updateLastContactedAt(contact.id);
       const cleanPhone = contact.phone.replace(/[^0-9]/g, '');
       const whatsappUrl = `whatsapp://send?phone=${cleanPhone}`;
-      
+
       const canOpen = await Linking.canOpenURL(whatsappUrl);
-      
+
       if (canOpen) {
         await Linking.openURL(whatsappUrl);
       } else {
@@ -171,7 +208,7 @@ export default function ContactDetailScreen() {
     try {
       const emailUrl = `mailto:${contact.email}`;
       const canOpen = await Linking.canOpenURL(emailUrl);
-      
+
       if (canOpen) {
         await Linking.openURL(emailUrl);
       } else {
@@ -213,7 +250,7 @@ ${contact.notes ? `📝 ${contact.notes}` : ''}
 
   const getRandomColor = (id: string) => {
     const colors = [
-      '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', 
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
       '#98D8C8', '#6C5CE7', '#A29BFE', '#FD79A8'
     ];
     const index = id.charCodeAt(0) % colors.length;
@@ -288,11 +325,25 @@ ${contact.notes ? `📝 ${contact.notes}` : ''}
 
         {/* Avatar and Name */}
         <View style={styles.profileSection}>
-          <View style={styles.avatarLarge}>
-            <Text style={styles.avatarLargeText}>
-              {getInitials(contact.firstName, contact.lastName)}
-            </Text>
-          </View>
+          <TouchableOpacity style={styles.avatarLarge} onPress={handlePickPhoto} disabled={uploadingPhoto}>
+            {uploadingPhoto ? (
+              <ActivityIndicator size="large" color="#FFFFFF" />
+            ) : contact.photoURL ? (
+              <Image
+                source={{ uri: contact.photoURL }}
+                style={styles.avatarImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+              />
+            ) : (
+              <Text style={styles.avatarLargeText}>
+                {getInitials(contact.firstName, contact.lastName)}
+              </Text>
+            )}
+            <View style={styles.cameraBadge}>
+              <Ionicons name="camera" size={14} color="#fff" />
+            </View>
+          </TouchableOpacity>
           <Text style={styles.nameText}>
             {contact.firstName} {contact.lastName}
           </Text>
@@ -440,7 +491,7 @@ ${contact.notes ? `📝 ${contact.notes}` : ''}
         {/* Metadata */}
         <View style={[styles.section, { backgroundColor: theme.card }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Kayıt Bilgileri</Text>
-          
+
           <View style={styles.metadataRow}>
             <Text style={[styles.metadataLabel, { color: theme.textDim }]}>Oluşturulma:</Text>
             <Text style={[styles.metadataValue, { color: theme.text }]}>
@@ -537,6 +588,19 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  avatarImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 25,
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+    padding: 6,
   },
   nameText: {
     fontSize: 28,

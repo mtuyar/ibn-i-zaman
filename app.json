@@ -4,32 +4,34 @@
     "slug": "ibn-i-zaman",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/splash.png",
+    "icon": "./assets/images/icon_new.png",
     "scheme": "ibnizaman",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "icon": "./assets/images/icon.png",
+      "icon": "./assets/images/icon_new.png",
       "buildNumber": "3",
       "bundleIdentifier": "com.mtuyarr.ibnizaman",
       "bitcode": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "name": "Zamanın Oğlu",
-      "icon": "./assets/images/android-1024px .png",
+      "icon": "./assets/images/icon_new.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
+        "foregroundImage": "./assets/images/icon_new.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "notification": {
-        "icon": "./assets/images/favicon.png"
+        "icon": "./assets/images/icon_new.png"
       },
-      "package": "com.mtuyarr.ibnizaman"
+      "package": "com.mtuyarr.ibnizaman",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
@@ -66,15 +68,11 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "2fa1bb3d-3606-42e8-929c-bdd76d50bdc9"
+        "projectId": "d3bc9429-a22c-4bc9-a1d7-45336002f49a"
       }
     },
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/2fa1bb3d-3606-42e8-929c-bdd76d50bdc9"
-    },
-    "owner": "mtuyarr"
+    }
   }
 }

@@ -294,15 +294,6 @@ export default function Announcements() {
         </View>
       )}
 
-      {isAdmin && (
-        <TouchableOpacity
-          style={[styles.fabButton, { backgroundColor: theme.primary }]}
-          onPress={() => setIsFormVisible(true)}
-        >
-          <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
-
       <Modal
         visible={isModalVisible}
         transparent

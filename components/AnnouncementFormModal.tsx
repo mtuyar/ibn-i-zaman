@@ -13,7 +13,9 @@ import {
   TouchableOpacity,
   View,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Colors from '../constants/Colors';
 import { useColorScheme } from 'react-native';
 import { AnnouncementCriticality } from '../types/announcement';
@@ -162,20 +164,30 @@ export default function AnnouncementFormModal({
   };
 
   return (
-    <Modal animationType="fade" transparent visible={visible} onRequestClose={handleClose}>
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <View style={[styles.modalCard, { backgroundColor: theme.card }]}
-        >
-          <View style={styles.header}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Yeni Duyuru</Text>
+        <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
+          <LinearGradient
+            colors={[theme.primary, `${theme.primary}CC`]}
+            style={styles.header}
+          >
+            <View style={styles.headerContent}>
+              <View style={styles.headerIconCircle}>
+                <MaterialCommunityIcons name="bullhorn" size={24} color="#FFF" />
+              </View>
+              <View>
+                <Text style={styles.headerTitle}>Yeni Duyuru</Text>
+                <Text style={styles.headerSubtitle}>Ekibinizi bilgilendirin</Text>
+              </View>
+            </View>
             <TouchableOpacity
               style={styles.closeButton}
               onPress={handleClose}
               disabled={isSubmitting}
             >
-              <MaterialCommunityIcons name="close" size={22} color={theme.text} />
+              <MaterialCommunityIcons name="close" size={24} color="#FFF" />
             </TouchableOpacity>
-          </View>
+          </LinearGradient>
 
           <ScrollView
             style={styles.bodyScroll}
@@ -184,29 +196,37 @@ export default function AnnouncementFormModal({
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.fieldGroup}>
-              <Text style={[styles.label, { color: theme.textDim }]}>Başlık</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.card, color: theme.text }]}
-                placeholder="Duyuru başlığı"
-                placeholderTextColor={theme.placeholder}
-                value={values.title}
-                onChangeText={(text) => setValues((prev) => ({ ...prev, title: text }))}
-                maxLength={120}
-              />
+              <Text style={[styles.label, { color: theme.text }]}>Başlık</Text>
+              <View style={[styles.inputWrapper, { borderColor: values.title ? theme.primary : theme.border }]}>
+                <MaterialCommunityIcons name="format-title" size={20} color={values.title ? theme.primary : theme.textDim} />
+                <TextInput
+                  style={[styles.input, { color: theme.text }]}
+                  placeholder="Duyuru başlığı"
+                  placeholderTextColor={theme.placeholder}
+                  value={values.title}
+                  onChangeText={(text) => setValues((prev) => ({ ...prev, title: text }))}
+                  maxLength={120}
+                />
+              </View>
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={[styles.label, { color: theme.textDim }]}>İçerik</Text>
-              <TextInput
-                style={[styles.textArea, { backgroundColor: theme.card, color: theme.text }]}
-                placeholder="Duyuru detaylarını yazın"
-                placeholderTextColor={theme.placeholder}
-                value={values.body}
-                onChangeText={(text) => setValues((prev) => ({ ...prev, body: text }))}
-                multiline
-                numberOfLines={6}
-                textAlignVertical="top"
-              />
+              <Text style={[styles.label, { color: theme.text }]}>İçerik</Text>
+              <View style={[styles.textAreaWrapper, { borderColor: values.body.length > 10 ? theme.primary : theme.border }]}>
+                <TextInput
+                  style={[styles.textArea, { color: theme.text }]}
+                  placeholder="Duyuru detaylarını yazın..."
+                  placeholderTextColor={theme.placeholder}
+                  value={values.body}
+                  onChangeText={(text) => setValues((prev) => ({ ...prev, body: text }))}
+                  multiline
+                  numberOfLines={5}
+                  textAlignVertical="top"
+                />
+              </View>
+              <Text style={[styles.charCount, { color: values.body.length > 10 ? theme.primary : theme.textDim }]}>
+                {values.body.length} karakter
+              </Text>
             </View>
 
             <View style={styles.fieldGroup}>
@@ -293,15 +313,21 @@ export default function AnnouncementFormModal({
             </View>
           </ScrollView>
 
-          <View style={[styles.footer, { borderTopColor: `${theme.border}99` }]}>
+          <View style={[styles.footer, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
             <TouchableOpacity
               style={[styles.submitButton, { backgroundColor: isValid ? theme.primary : theme.border }]}
               onPress={handleSubmit}
               disabled={!isValid || isSubmitting}
+              activeOpacity={0.8}
             >
-              <Text style={styles.submitButtonLabel}>
-                {isSubmitting ? 'Kaydediliyor...' : 'Duyuruyu Paylaş'}
-              </Text>
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="send" size={20} color="#FFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.submitButtonLabel}>Duyuruyu Paylaş</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
 
@@ -357,18 +383,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 18,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 2,
   },
   closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
   bodyScroll: {
     maxHeight: '72%',
@@ -384,19 +432,37 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
+    marginBottom: 4,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    gap: 10,
   },
   input: {
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    flex: 1,
     fontSize: 16,
+    paddingVertical: 12,
+  },
+  textAreaWrapper: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
   },
   textArea: {
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
     fontSize: 15,
-    minHeight: 160,
+    minHeight: 120,
+    paddingVertical: 10,
+  },
+  charCount: {
+    fontSize: 12,
+    textAlign: 'right',
+    marginTop: 4,
   },
   scheduleButton: {
     borderRadius: 12,

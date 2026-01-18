@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "571545558200",
+    "project_id": "gencsafa-management-app",
+    "storage_bucket": "gencsafa-management-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:571545558200:android:d3d142e00c25415cc9684d",
+        "android_client_info": {
+          "package_name": "com.company.gencsafamanagementapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBgk91cUuFrROlGQA-_grEvbC085bDGIcI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:571545558200:android:4f7691d3e0aa9192c9684d",
+        "android_client_info": {
+          "package_name": "com.mtuyarr.ibnizaman"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBgk91cUuFrROlGQA-_grEvbC085bDGIcI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

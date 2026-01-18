@@ -1,34 +1,38 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter, Stack } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    Image,
-    Platform,
-    RefreshControl,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    useColorScheme,
-    View,
+  Alert,
+  FlatList,
+  Image,
+  Platform,
+  RefreshControl,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useColorScheme,
+  View,
+  Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
 import { ChatItem } from '../../components/ChatItem';
 import Colors from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { Chat, deleteChat, getChats, subscribeToChats } from '../../services/ChatService';
-import { sendTestNotification } from '../../services/PushService';
 import { getUser } from '../../services/UserService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const { width } = Dimensions.get('window');
 
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  const isDark = colorScheme === 'dark';
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -53,51 +57,44 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!user?.uid) return;
-    
-    // İlk yükleme
+
     loadChats();
-    
-    // Gerçek zamanlı dinleme
+
     const unsubscribe = subscribeToChats(user.uid, (updatedChats) => {
       setChats(updatedChats);
     });
-    
+
     return () => {
       unsubscribe();
     };
   }, [user?.uid]);
 
-  // Profil resmini yükle
   useEffect(() => {
     const loadProfilePhoto = async () => {
       if (!user?.uid) return;
-      
+
       try {
-        // Önce cache'den kontrol et
         const cachedPhoto = await AsyncStorage.getItem(`profile_photo_${user.uid}`);
         if (cachedPhoto) {
           setProfilePhotoUrl(cachedPhoto);
           return;
         }
-        
-        // Cache'de yoksa Firestore'dan çek
+
         const userData = await getUser(user.uid);
         if (userData?.photoURL) {
           setProfilePhotoUrl(userData.photoURL);
           await AsyncStorage.setItem(`profile_photo_${user.uid}`, userData.photoURL);
         } else if (user?.photoURL) {
-          // Firestore'da yoksa Firebase Auth'dan al
           setProfilePhotoUrl(user.photoURL);
         }
       } catch (error) {
         console.error('Profil resmi yükleme hatası:', error);
-        // Hata durumunda Firebase Auth'dan al
         if (user?.photoURL) {
           setProfilePhotoUrl(user.photoURL);
         }
       }
     };
-    
+
     loadProfilePhoto();
   }, [user]);
 
@@ -115,60 +112,90 @@ export default function ChatScreen() {
 
   const handleDeleteChat = async (chatId: string) => {
     if (!user) return;
-    try {
-      await deleteChat(chatId, user.uid);
-      setChats(chats.filter(chat => chat.id !== chatId));
-    } catch (error) {
-      console.error('Sohbet silme hatası:', error);
-    }
+    Alert.alert(
+      'Sohbeti Sil',
+      'Bu sohbeti silmek istediğinize emin misiniz?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Sil',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteChat(chatId, user.uid);
+              setChats(chats.filter(chat => chat.id !== chatId));
+            } catch (error) {
+              console.error('Sohbet silme hatası:', error);
+            }
+          },
+        },
+      ]
+    );
   };
 
-  const handleTestNotification = async () => {
-    if (!user?.uid) return;
-    
-    try {
-      Alert.alert('Bildirim Testi', 'Firebase üzerinden test bildirimi gönderiliyor...');
-      const success = await sendTestNotification(user.uid);
-      
-      if (success) {
-        Alert.alert('Başarılı', 'Test mesajı gönderildi. Birkaç saniye içinde bildirim gelmeli.');
-      } else {
-        Alert.alert('Hata', 'Test bildirimi gönderilemedi. Token bulunamamış olabilir.');
-      }
-    } catch (error) {
-      console.error('Test bildirimi hatası:', error);
-      Alert.alert('Hata', 'Bir hata oluştu.');
-    }
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Günaydın';
+    if (hour < 18) return 'İyi günler';
+    return 'İyi akşamlar';
   };
+
+  const renderChatItem = useCallback(({ item, index }: { item: Chat; index: number }) => (
+    <Animated.View entering={FadeInDown.delay(index * 50).springify()}>
+      <ChatItem
+        chat={item}
+        onSelect={handleChatSelect}
+        onDelete={handleDeleteChat}
+      />
+    </Animated.View>
+  ), [handleChatSelect, handleDeleteChat]);
+
+  const totalUnread = chats.reduce((acc, chat) =>
+    acc + (user ? (chat.unreadCount?.[user.uid] || 0) : 0)
+    , 0);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
-      <TouchableOpacity 
-        style={{ backgroundColor: theme.primary, padding: 8, alignItems: 'center', marginHorizontal: 16, marginTop: 8, borderRadius: 8 }}
-        onPress={handleTestNotification}
-      >
-        <Text style={{ color: '#fff', fontWeight: 'bold' }}>🔥 Firebase Bildirim Testi</Text>
-      </TouchableOpacity>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
-      {/* Header */}
-      <View style={[styles.headerContainer, { backgroundColor: theme.surface, borderBottomColor: theme.border, paddingTop: Platform.OS === 'ios' ? 8 : StatusBar.currentHeight }]}>
-        <View style={styles.headerRow}>
-          <TouchableOpacity onPress={handleProfilePress} activeOpacity={0.7}>
+      {isDark && <LinearGradient colors={['#1a1a2e', '#16213e']} style={styles.backgroundGradient} />}
+
+      {/* Modern Header */}
+      <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 50 : (StatusBar.currentHeight || 0) + 10 }]}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={handleProfilePress} activeOpacity={0.7} style={styles.profileButton}>
             {profilePhotoUrl ? (
               <Image source={{ uri: profilePhotoUrl }} style={styles.avatar} />
             ) : (
-              <View style={[styles.avatarPlaceholder, { backgroundColor: theme.border }]}>
-                <Text style={[styles.avatarText, { color: theme.text }]}>{user?.displayName?.charAt(0) || user?.email?.charAt(0) || '?'}</Text>
-              </View>
+              <LinearGradient colors={['#667eea', '#764ba2']} style={styles.avatarGradient}>
+                <Text style={styles.avatarText}>
+                  {user?.displayName?.charAt(0) || user?.email?.charAt(0) || '?'}
+                </Text>
+              </LinearGradient>
             )}
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Mesajlar</Text>
-          <TouchableOpacity style={styles.addButton} onPress={handleNewMessage}>
-            <Ionicons name="add" size={28} color={theme.primary} />
-          </TouchableOpacity>
+
+          <View style={styles.headerCenter}>
+            <Text style={[styles.greeting, { color: theme.tabIconDefault }]}>{getGreeting()}</Text>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Mesajlar</Text>
+          </View>
+
+          <View style={styles.headerActions}>
+            {totalUnread > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>{totalUnread > 99 ? '99+' : totalUnread}</Text>
+              </View>
+            )}
+          </View>
         </View>
-        <View style={[styles.searchBox, { backgroundColor: colorScheme === 'dark' ? '#0F172A' : '#F5F5F5' }]}>
-          <Ionicons name="search" size={20} color={theme.placeholder} style={{ marginRight: 8 }} />
+
+        {/* Search Box */}
+        <Animated.View
+          entering={FadeInDown.delay(100)}
+          style={[styles.searchContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#f0f0f0' }]}
+        >
+          <Ionicons name="search" size={20} color={theme.tabIconDefault} />
           <TextInput
             style={[styles.searchInput, { color: theme.text }]}
             placeholder="Sohbetlerde ara..."
@@ -176,21 +203,34 @@ export default function ChatScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
-        </View>
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={20} color={theme.tabIconDefault} />
+            </TouchableOpacity>
+          )}
+        </Animated.View>
+
+        {/* Quick Stats */}
+        <Animated.View entering={FadeInDown.delay(150)} style={styles.statsRow}>
+          <View style={[styles.statChip, { backgroundColor: isDark ? 'rgba(79, 172, 254, 0.15)' : '#e3f2fd' }]}>
+            <Ionicons name="chatbubbles" size={16} color="#4facfe" />
+            <Text style={[styles.statChipText, { color: '#4facfe' }]}>{chats.length} Sohbet</Text>
+          </View>
+          {totalUnread > 0 && (
+            <View style={[styles.statChip, { backgroundColor: isDark ? 'rgba(250, 112, 154, 0.15)' : '#fce4ec' }]}>
+              <Ionicons name="mail-unread" size={16} color="#fa709a" />
+              <Text style={[styles.statChipText, { color: '#fa709a' }]}>{totalUnread} Okunmamış</Text>
+            </View>
+          )}
+        </Animated.View>
       </View>
 
-      {/* Sohbet Listesi */}
+      {/* Chat List */}
       <FlatList
         data={filteredChats}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <ChatItem
-            chat={item}
-            onSelect={handleChatSelect}
-            onDelete={handleDeleteChat}
-          />
-        )}
-        contentContainerStyle={[styles.listContent]}
+        renderItem={renderChatItem}
+        contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -200,110 +240,208 @@ export default function ChatScreen() {
           />
         }
         ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubbles-outline" size={64} color={theme.placeholder} />
-            <Text style={[styles.emptyText, { color: theme.textDim }]}>
+          <Animated.View entering={FadeInDown.delay(200)} style={styles.emptyContainer}>
+            <LinearGradient colors={['#667eea', '#764ba2']} style={styles.emptyIconCircle}>
+              <Ionicons name="chatbubbles-outline" size={48} color="#FFF" />
+            </LinearGradient>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>
+              {searchQuery ? 'Sonuç bulunamadı' : 'Henüz mesaj yok'}
+            </Text>
+            <Text style={[styles.emptySubtitle, { color: theme.textDim }]}>
               {searchQuery
-                ? 'Arama sonucu bulunamadı'
-                : 'Henüz hiç mesajınız yok'}
+                ? 'Farklı anahtar kelimeler deneyin'
+                : 'Yeni bir sohbet başlatarak iletişime geçin'}
             </Text>
             {!searchQuery && (
               <TouchableOpacity
-                style={[styles.startChatButton, { backgroundColor: theme.primary }]}
+                style={styles.emptyButton}
                 onPress={handleNewMessage}
+                activeOpacity={0.8}
               >
-                <Text style={styles.startChatButtonText}>Yeni Mesaj Başlat</Text>
+                <LinearGradient colors={['#667eea', '#764ba2']} style={styles.emptyButtonGradient}>
+                  <Ionicons name="add" size={20} color="#FFF" />
+                  <Text style={styles.emptyButtonText}>Yeni Sohbet Başlat</Text>
+                </LinearGradient>
               </TouchableOpacity>
             )}
-          </View>
+          </Animated.View>
         )}
+        showsVerticalScrollIndicator={false}
       />
-    </SafeAreaView>
+
+      {/* FAB - New Message */}
+      <TouchableOpacity
+        style={[styles.fab]}
+        onPress={handleNewMessage}
+        activeOpacity={0.9}
+      >
+        <LinearGradient colors={['#667eea', '#764ba2']} style={styles.fabGradient}>
+          <MaterialCommunityIcons name="message-plus" size={26} color="#FFF" />
+        </LinearGradient>
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerContainer: {
-    paddingBottom: 8,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
+  container: {
+    flex: 1,
   },
-  headerRow: {
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+  },
+  headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  profileButton: {
+    marginRight: 12,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
-    backgroundColor: '#E5E5E5',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(102, 126, 234, 0.3)',
   },
-  avatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
-    backgroundColor: '#E5E5E5',
+  avatarGradient: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
+    color: '#FFF',
+  },
+  headerCenter: {
+    flex: 1,
+  },
+  greeting: {
+    fontSize: 13,
+    marginBottom: 2,
   },
   headerTitle: {
-    flex: 1,
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: 'bold',
   },
-  addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchBox: {
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 16,
+  },
+  unreadBadge: {
+    backgroundColor: '#fa709a',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  unreadBadgeText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
     paddingHorizontal: 12,
-    height: 40,
+    paddingVertical: 8,
+    gap: 10,
+    marginBottom: 10,
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#222',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 20,
+  },
+  statChipText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   listContent: {
-    paddingVertical: 8,
+    paddingBottom: 100,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 100,
+    paddingTop: 80,
+    paddingHorizontal: 40,
   },
-  emptyText: {
-    fontSize: 16,
-    marginTop: 16,
+  emptyIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
     textAlign: 'center',
   },
-  startChatButton: {
-    marginTop: 24,
-    backgroundColor: '#2E7DFF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
+  emptySubtitle: {
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
   },
-  startChatButtonText: {
-    color: '#FFFFFF',
+  emptyButton: {
+    borderRadius: 25,
+    overflow: 'hidden',
+  },
+  emptyButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+  },
+  emptyButtonText: {
+    color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
   },
-}); 
+  fab: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    borderRadius: 30,
+    overflow: 'hidden',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  fabGradient: {
+    width: 60,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

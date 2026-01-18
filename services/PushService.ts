@@ -43,7 +43,7 @@ export async function getExpoPushTokenAsync(): Promise<string | null> {
   return tokenResp?.data ?? null;
 }
 
-// Register for native device push (FCM on Android). This is NOT Expo push.
+// Register for native device push (FCM on Android/iOS).
 export async function getDevicePushTokenAsync(): Promise<{ type: string; data: string } | null> {
   if (!Device.isDevice) return null;
 
@@ -71,7 +71,7 @@ export async function getDevicePushTokenAsync(): Promise<{ type: string; data: s
       enableVibrate: true,
       showBadge: true,
     });
-    
+
     // Default channel
     await Notifications.setNotificationChannelAsync('default', {
       name: 'Genel Bildirimler',
@@ -138,11 +138,11 @@ export async function registerDevicePushToken(userId: string) {
     console.log('🔔 registerDevicePushToken: Başlatılıyor - userId:', userId);
     console.log('📱 Device.isDevice:', Device.isDevice);
     console.log('📱 Platform.OS:', Platform.OS);
-    
+
     // Önce permissions kontrolü
     const { status } = await Notifications.getPermissionsAsync();
     console.log('🔐 Notification permission status:', status);
-    
+
     if (status !== 'granted') {
       console.warn('⚠️ Notification permission verilmemiş!');
       const { status: newStatus } = await Notifications.requestPermissionsAsync();
@@ -152,26 +152,34 @@ export async function registerDevicePushToken(userId: string) {
         return;
       }
     }
-    
+
     // Expo Notifications device push token (Android → FCM, iOS → APNs)
-    const token = await getDevicePushTokenAsync();
-    console.log('📱 registerDevicePushToken: Token alındı:', token ? `${token.type}: ${token.data?.substring(0, 30)}...` : 'null');
-    
+    let token = await getDevicePushTokenAsync();
+
+    // Retry logic: Token bazen ilk denemede gelmeyebilir (özellikle iOS'ta)
     if (!token) {
-      console.error('❌ registerDevicePushToken: Token alınamadı!');
+      console.log('⚠️ Token ilk denemede alınamadı, 1 saniye sonra tekrar deneniyor...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      token = await getDevicePushTokenAsync();
+    }
+
+    console.log('📱 registerDevicePushToken: Token alındı:', token ? `${token.type}: ${token.data?.substring(0, 30)}...` : 'null');
+
+    if (!token) {
+      console.error('❌ registerDevicePushToken: Token alınamadı (2 deneme sonrası)!');
       console.log('💡 İpucu: Expo Go\'da native FCM token almak için production build gerekebilir.');
       return;
     }
-    
+
     const userRef = doc(db, 'users', userId);
-    
+
     if (token.type === 'fcm') {
       console.log('💾 registerDevicePushToken: FCM token kaydediliyor...');
       await saveUserFcmToken(userId, token.data);
       console.log('✅ registerDevicePushToken: FCM token başarıyla kaydedildi!');
     } else if (token.type === 'apns' || token.type === 'ios') {
       // iOS için APNs token'ı kaydet
-      await setDoc(userRef, { 
+      await setDoc(userRef, {
         apnsToken: token.data,
         devicePushToken: token.data,
         devicePushType: 'apns'
@@ -179,13 +187,13 @@ export async function registerDevicePushToken(userId: string) {
       console.log('💾 registerDevicePushToken: APNs token kaydedildi:', token.data.substring(0, 30) + '...');
       // iOS için FCM token olarak da kaydet (Cloud Functions uyumluluğu için)
       // Not: iOS'ta FCM yok ama Cloud Functions APNs token'ı da kullanabilir
-      await setDoc(userRef, { 
+      await setDoc(userRef, {
         fcmToken: token.data // iOS token'ını fcmToken olarak da kaydet
       }, { merge: true });
       console.log('💾 registerDevicePushToken: iOS token fcmToken olarak da kaydedildi (Cloud Functions uyumluluğu için)');
     } else {
-      await setDoc(userRef, { 
-        devicePushToken: token.data, 
+      await setDoc(userRef, {
+        devicePushToken: token.data,
         devicePushType: token.type,
         fcmToken: token.data // Genel token'ı fcmToken olarak da kaydet
       }, { merge: true });
@@ -227,22 +235,22 @@ export async function sendTestNotification(userId: string) {
     const { doc, getDoc, collection, addDoc, getDocs, query, where, Timestamp } = await import('firebase/firestore');
     const userDoc = await getDoc(doc(db, 'users', userId));
     const userData = userDoc.data();
-    
+
     const pushToken = userData?.fcmToken || userData?.apnsToken || userData?.devicePushToken;
     if (!pushToken) {
       console.error('❌ Push token bulunamadı! Önce token kaydedilmeli.');
       console.log('📋 Mevcut user data fields:', Object.keys(userData || {}).join(', '));
       return false;
     }
-    
+
     const tokenType = userData?.fcmToken ? 'FCM' : (userData?.apnsToken ? 'APNs' : 'Device');
     console.log(`✅ ${tokenType} token bulundu: ${pushToken.substring(0, 30)}...`);
-    
+
     console.log('🧪 Test bildirimi gönderiliyor...');
-    
+
     // Test chat'i bul veya oluştur (kullanıcının kendisiyle)
     let testChatId: string | null = null;
-    
+
     // Önce mevcut test chat'ini ara
     const testChatQuery = query(
       collection(db, 'chats'),
@@ -250,7 +258,7 @@ export async function sendTestNotification(userId: string) {
       where('name', '==', 'Test Bildirimi')
     );
     const testChatSnapshot = await getDocs(testChatQuery);
-    
+
     if (!testChatSnapshot.empty) {
       testChatId = testChatSnapshot.docs[0].id;
       console.log('📱 Mevcut test chat bulundu:', testChatId);
@@ -271,17 +279,17 @@ export async function sendTestNotification(userId: string) {
         createdAt: now,
         updatedAt: now,
       };
-      
+
       const testChatRef = await addDoc(collection(db, 'chats'), testChatData);
       testChatId = testChatRef.id;
       console.log('📱 Yeni test chat oluşturuldu:', testChatId);
     }
-    
+
     if (!testChatId) {
       console.error('❌ Test chat oluşturulamadı!');
       return false;
     }
-    
+
     // Test mesajını gönder
     await addDoc(collection(db, 'messages'), {
       chatId: testChatId,
@@ -290,7 +298,7 @@ export async function sendTestNotification(userId: string) {
       type: 'text',
       createdAt: Timestamp.now(),
     });
-    
+
     console.log('✅ Test mesajı gönderildi. Cloud Functions bildirimi gönderecek.');
     console.log('📱 Chat ID:', testChatId);
     return true;
@@ -299,5 +307,3 @@ export async function sendTestNotification(userId: string) {
     return false;
   }
 }
-
-
